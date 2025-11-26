@@ -9,7 +9,6 @@ import Foundation
 import NostrSDK
 
 enum MarmotMessageKind: UInt16 {
-    case follow = 30
     case videoShare = 4543
     case videoRevoke = 4544
     case videoDelete = 4545

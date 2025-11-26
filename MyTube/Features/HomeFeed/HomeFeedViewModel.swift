@@ -509,7 +509,6 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
         print("   📡 Refreshing subscriptions...")
         await environment.syncCoordinator.refreshSubscriptions()
         
-        // Relationship store removed - using MDK groups directly
         print("   🎬 Recomputing ranking...")
         recomputeRanking()
         

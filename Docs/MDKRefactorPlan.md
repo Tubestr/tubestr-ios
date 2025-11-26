@@ -1,8 +1,8 @@
 # MDK Refactor Plan
 
-_Owner: Codex • Last updated: 2026-03-24_
+_Owner: Codex • Last updated: 2025-11-20_
 
-This plan tracked the migration from the legacy direct-messaging stack to Marmot (MLS over Nostr) using `MDKBindings`. Phases 0–5 are complete and the old code paths have been removed; the app now relies exclusively on MDK for membership, welcomes, shares/likes/reports, and projection into Core Data. Remaining work is limited to the moderation “Safety HQ” group plus ongoing polish.
+This plan tracked the migration from the legacy direct-messaging stack to Marmot (MLS over Nostr) using `MDKBindings`. All phases are complete and the old code paths have been fully removed, including follow relationships, FollowModel, FollowEntity, and RelationshipStore. The app now relies exclusively on MDK for membership, welcomes, shares/likes/reports, and projection into Core Data. Remaining work is limited to the moderation "Safety HQ" group plus ongoing polish.
 
 ---
 

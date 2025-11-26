@@ -57,7 +57,6 @@ final class VideoShareCoordinator {
             }
         }
 
-        // Relationship store removed - using MDK groups directly
         // Group changes trigger via NotificationCenter.marmotStateDidChange
         NotificationCenter.default.addObserver(
             forName: .marmotStateDidChange,
@@ -327,8 +326,6 @@ final class VideoShareCoordinator {
         }
         return Array(ids)
     }
-
-    // Follow relationship logic removed - using MDK groups directly
 }
 
 extension VideoShareCoordinator.PublishError: LocalizedError {

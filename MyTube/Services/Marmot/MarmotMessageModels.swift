@@ -11,53 +11,11 @@ import MDKBindings
 typealias GroupUpdateResult = AddMembersResult
 
 enum MarmotPayloadType: String, Codable, CaseIterable, Sendable {
-    case follow = "mytube/follow"
     case videoShare = "mytube/video_share"
     case videoRevoke = "mytube/video_revoke"
     case videoDelete = "mytube/video_delete"
     case like = "mytube/like"
     case report = "mytube/report"
-}
-
-struct FollowMessage: Codable, Sendable {
-    let t: String
-    let followerChild: String
-    let targetChild: String
-    let approvedFrom: Bool
-    let approvedTo: Bool
-    let status: String
-    let by: String
-    let ts: Double
-
-    init(
-        followerChild: String,
-        targetChild: String,
-        approvedFrom: Bool,
-        approvedTo: Bool,
-        status: String,
-        by: String,
-        timestamp: Date
-    ) {
-        self.t = MarmotPayloadType.follow.rawValue
-        self.followerChild = followerChild
-        self.targetChild = targetChild
-        self.approvedFrom = approvedFrom
-        self.approvedTo = approvedTo
-        self.status = status
-        self.by = by
-        self.ts = timestamp.timeIntervalSince1970
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case t
-        case followerChild = "follower_child"
-        case targetChild = "target_child"
-        case approvedFrom
-        case approvedTo
-        case status
-        case by
-        case ts
-    }
 }
 
 struct VideoShareMessage: Codable, Sendable {

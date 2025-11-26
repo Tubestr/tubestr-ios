@@ -77,21 +77,39 @@ final class SimpleMarmotTest: XCTestCase {
         }
         print("✅ Got all identities")
         
-        // Create invite
-        let relays = await familyA.environment.relayDirectory.currentRelayURLs()
-        let keyPackageResult = try await familyA.environment.mdkActor.createKeyPackage(
-            forPublicKey: parentIdentity.publicKeyHex,
-            relays: relays.map(\.absoluteString)
-        )
+        // Publish key package to relay
+        print("📤 Publishing key package to relay...")
+        await vmA.publishKeyPackageToRelays()
+        print("✅ Key package published")
+
+        // Wait for relay propagation
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+
+        // Create invite (v3 - no embedded key packages)
         let invite = ParentZoneViewModel.FollowInvite(
-            version: 2,
+            version: 3,
             childName: childA.profile.name,
             childPublicKey: childPublicKey,
-            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex,
-            parentKeyPackages: [keyPackageResult.keyPackage]
+            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex
         )
-        vmB.storePendingKeyPackages(from: invite)
-        print("✅ Created and stored invite")
+
+        // Fetch key packages from relay
+        print("🔍 Fetching key packages from relay...")
+        await vmB.fetchKeyPackagesFromRelay(for: invite)
+
+        // Wait for fetch to complete
+        let fetchSuccess = try await waitUntil("Key packages fetched", timeout: 10) {
+            if case .fetched = vmB.keyPackageFetchState { return true }
+            if case .failed = vmB.keyPackageFetchState { return true }
+            return false
+        }
+        XCTAssertTrue(fetchSuccess, "Key package fetch should complete")
+
+        if case .failed(_, let error) = vmB.keyPackageFetchState {
+            XCTFail("Key package fetch failed: \(error)")
+            return
+        }
+        print("✅ Key packages fetched")
         
         // Submit follow request
         print("📤 Submitting follow request...")
@@ -151,35 +169,73 @@ final class SimpleMarmotTest: XCTestCase {
             return XCTFail("Missing parent identity")
         }
         print("✅ Parent A key: \(parentIdentity.publicKeyHex.prefix(16))...")
-        
-        // Create key package
-        let relays = await familyA.environment.relayDirectory.currentRelayURLs()
-        let keyPackageResult = try await familyA.environment.mdkActor.createKeyPackage(
-            forPublicKey: parentIdentity.publicKeyHex,
-            relays: relays.map(\.absoluteString)
-        )
-        print("✅ Created key package")
-        
-        // Create invite
+
+        // Wait for relay connection
+        let connected = try await waitUntil("Relay connected", timeout: 10) {
+            let statuses = await familyA.nostrClient.relayStatuses()
+            return statuses.contains { $0.status == .connected }
+        }
+        XCTAssertTrue(connected, "Relay should be connected")
+
+        // Publish key package to relay
+        print("📤 Publishing key package to relay...")
+        await vmA.publishKeyPackageToRelays()
+        print("✅ Published key package")
+
+        // Wait for relay propagation
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+
+        // Create invite (v3 - no embedded key packages)
         let invite = ParentZoneViewModel.FollowInvite(
-            version: 2,
+            version: 3,
             childName: "TestChild",
             childPublicKey: "test_child_key",
-            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex,
-            parentKeyPackages: [keyPackageResult.keyPackage]
+            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex
         )
         print("✅ Created invite")
-        
-        // Store key packages
-        vmB.storePendingKeyPackages(from: invite)
-        print("✅ Stored key packages in Family B")
-        
+
+        // Fetch key packages from relay
+        print("🔍 Fetching key packages from relay...")
+        await vmB.fetchKeyPackagesFromRelay(for: invite)
+
+        // Wait for fetch to complete
+        let fetchComplete = try await waitUntil("Key packages fetched", timeout: 10) {
+            if case .fetched = vmB.keyPackageFetchState { return true }
+            if case .failed = vmB.keyPackageFetchState { return true }
+            return false
+        }
+        XCTAssertTrue(fetchComplete, "Key package fetch should complete")
+
         // Verify storage
         let hasPackages = vmB.hasPendingKeyPackages(for: invite.parentPublicKey)
         print("   Has pending packages for parent: \(hasPackages)")
-        
-        XCTAssertTrue(hasPackages, "Should have pending key packages after storing")
+
+        if case .fetched(_, let count) = vmB.keyPackageFetchState {
+            print("   Fetched \(count) key package(s)")
+            XCTAssertGreaterThan(count, 0, "Should have fetched at least one key package")
+        } else if case .failed(_, let error) = vmB.keyPackageFetchState {
+            XCTFail("Key package fetch failed: \(error)")
+        }
+
+        XCTAssertTrue(hasPackages, "Should have pending key packages after fetching from relay")
         print("🎉 Key package storage test passed!\n")
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: TimeInterval = 10,
+        pollInterval: TimeInterval = 0.25,
+        condition: @escaping () async throws -> Bool
+    ) async throws -> Bool {
+        let iterations = max(1, Int(timeout / pollInterval))
+        for _ in 0..<iterations {
+            if try await condition() {
+                return true
+            }
+            try await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+        }
+        XCTFail("Timed out waiting for \(description)")
+        return false
     }
 }
 

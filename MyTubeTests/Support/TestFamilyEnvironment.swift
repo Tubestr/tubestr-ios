@@ -54,7 +54,11 @@ class TestFamilyEnvironment {
         // Nostr - using real relay for end-to-end testing
         self.nostrClient = RelayPoolNostrClient()
         let relayDirectory = RelayDirectory(userDefaults: relayDefaults)
-        
+        let keyPackageDiscovery = KeyPackageDiscovery(
+            nostrClient: nostrClient,
+            relayDirectory: relayDirectory
+        )
+
         // Configure to use wss://no.str.cr for testing
         let testRelayURL = URL(string: "wss://no.str.cr")!
         await relayDirectory.replaceAll(with: [testRelayURL])
@@ -256,6 +260,7 @@ class TestFamilyEnvironment {
             videoSharePublisher: videoSharePublisher,
             videoShareCoordinator: videoShareCoordinator,
             parentKeyPackageStore: parentKeyPackageStore,
+            keyPackageDiscovery: keyPackageDiscovery,
             groupMembershipCoordinator: groupMembershipCoordinator,
             reportStore: reportStore,
             reportCoordinator: reportCoordinator,

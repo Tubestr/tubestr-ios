@@ -141,7 +141,7 @@ actor ReportCoordinator {
             return []
         }
 
-        // Follow relationships removed - get groups from remote video store
+        // Get groups from remote video store
         // For now, return empty (reports will need to be sent to all groups)
         return []
     }
@@ -161,7 +161,7 @@ actor ReportCoordinator {
         let normalizedSubject = ParentIdentityKey(string: subjectChild)?.hex.lowercased() ?? subjectChild.lowercased()
         let actorKey = parentPair.publicKeyBech32 ?? parentPair.publicKeyHex
 
-        // Follow relationships removed - actions would be applied via MDK removeMembers
+        // Actions would be applied via MDK removeMembers
         // For now, just log - reports filed but don't auto-change group membership
         logger.info("Relationship action \(action.rawValue) for \(subjectChild) - would remove from groups")
     }

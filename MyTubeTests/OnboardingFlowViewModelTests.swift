@@ -95,6 +95,10 @@ private func makeOnboardingTestEnvironment() throws -> OnboardingTestHarness {
     let cryptoService = CryptoEnvelopeService()
     let nostrClient = StubNostrClient()
     let relayDirectory = RelayDirectory(userDefaults: userDefaults)
+    let keyPackageDiscovery = KeyPackageDiscovery(
+        nostrClient: nostrClient,
+        relayDirectory: relayDirectory
+    )
 
     let parentProfilePublisher = ParentProfilePublisher(
         identityManager: identityManager,
@@ -260,6 +264,7 @@ private func makeOnboardingTestEnvironment() throws -> OnboardingTestHarness {
         videoSharePublisher: videoSharePublisher,
         videoShareCoordinator: videoShareCoordinator,
         parentKeyPackageStore: parentKeyPackageStore,
+        keyPackageDiscovery: keyPackageDiscovery,
         groupMembershipCoordinator: groupMembershipCoordinator,
         reportStore: reportStore,
         reportCoordinator: reportCoordinator,

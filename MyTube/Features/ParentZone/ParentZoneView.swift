@@ -44,6 +44,12 @@ struct ParentZoneView: View {
     @State private var selectedSection: ParentZoneSection = .overview
     @State private var expandedChildIDs: Set<UUID> = []
     @State private var familyViewSelection: FamilyViewSelection = .children
+
+    private var isKeyPackageFetching: Bool {
+        if case .fetching = viewModel.keyPackageFetchState { return true }
+        return false
+    }
+
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
@@ -283,6 +289,35 @@ struct ParentZoneView: View {
                         }
                     }
 
+                    // Show key package fetch status
+                    switch viewModel.keyPackageFetchState {
+                    case .fetching(let parentKey):
+                        Section {
+                            HStack {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Fetching keys for \(parentKey.prefix(12))…")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    case .fetched(_, let count):
+                        Section {
+                            Label("Ready to connect (\(count) key\(count == 1 ? "" : "s") found)", systemImage: "checkmark.circle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.green)
+                        }
+                    case .failed(_, let error):
+                        Section {
+                            Text(error)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.leading)
+                        }
+                    case .idle:
+                        EmptyView()
+                    }
+
                     if let followFormError {
                         Section {
                             Text(followFormError)
@@ -303,7 +338,7 @@ struct ParentZoneView: View {
                         }
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Connect") {
+                        Button {
                             guard let childId = followChildSelection else {
                                 followFormError = "Select which child is sending the invite."
                                 return
@@ -331,9 +366,18 @@ struct ParentZoneView: View {
                                     dismissFollowRequest()
                                 }
                             }
+                        } label: {
+                            if case .fetching = viewModel.keyPackageFetchState {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .controlSize(.small)
+                            } else {
+                                Text("Connect")
+                            }
                         }
                         .disabled(
                             followIsSubmitting
+                                || isKeyPackageFetching
                                 || followChildSelection == nil
                                 || followTargetChildKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                 || followTargetParentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -602,8 +646,8 @@ private extension ParentZoneView {
     private var overviewSection: some View {
         let childCount = viewModel.childIdentities.count
         let videoCount = viewModel.videos.count
-        let incomingCount = viewModel.incomingFollowRequests().count
-        let activeCount = viewModel.activeFollowConnections().count
+        let incomingCount = 0
+        let activeCount = 0
         let remoteShareCount = viewModel.totalAvailableRemoteShares()
         let groupCount = viewModel.marmotDiagnostics.groupCount
         let pendingWelcomes = viewModel.pendingWelcomes.count
@@ -1061,19 +1105,6 @@ private extension ParentZoneView {
                     }
                 }
             }
-
-            Section("Blocked Families") {
-                let blocked = viewModel.followRelationships.filter { $0.status == .blocked }
-                if blocked.isEmpty {
-                    Text("No families are blocked.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(blocked, id: \.id) { follow in
-                        blockedFamilyRow(follow)
-                    }
-                }
-            }
         }
     }
 
@@ -1361,31 +1392,6 @@ private extension ParentZoneView {
     }
 
     @ViewBuilder
-    private func blockedFamilyRow(_ follow: FollowModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            let followerName = viewModel.followerProfile(for: follow)?.displayName ?? shortKey(follow.followerChild)
-            let targetName = viewModel.targetProfile(for: follow)?.displayName ?? shortKey(follow.targetChild)
-
-            Text("\(followerName) ↔︎ \(targetName)")
-                .font(.headline)
-
-            if let parentKey = viewModel.remoteParentKey(for: follow) {
-                Text("Parent: \(shortKey(parentKey))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text("Updated \(follow.updatedAt, style: .relative)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            Button("Unblock") {
-                viewModel.unblockFamily(for: follow)
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(.vertical, 4)
-    }
 
     private func reportStatusText(_ status: ReportStatus) -> String {
         switch status {
@@ -1673,144 +1679,6 @@ private extension ParentZoneView {
         .padding(.vertical, 8)
     }
 
-    private enum FollowRole {
-        case incoming
-        case outgoing
-        case active
-    }
-
-
-    @ViewBuilder
-    private func followSection(
-        incoming: [FollowModel],
-        outgoing: [FollowModel],
-        active: [FollowModel]
-    ) -> some View {
-        if incoming.isEmpty && outgoing.isEmpty && active.isEmpty {
-                Text("No Marmot connections yet. Share your child's invite with a family you trust to start a group.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 4)
-        } else {
-            if !incoming.isEmpty {
-                Text("Awaiting your approval")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
-                ForEach(incoming, id: \.id) { follow in
-                    followRow(follow, role: .incoming)
-                }
-            }
-
-            if !outgoing.isEmpty {
-                Text("Invites you sent")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
-                ForEach(outgoing, id: \.id) { follow in
-                    followRow(follow, role: .outgoing)
-                }
-            }
-
-            if !active.isEmpty {
-                Text("Active Marmot Families")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
-                ForEach(active, id: \.id) { follow in
-                    followRow(follow, role: .active)
-                }
-            }
-        }
-    }
-
-    private func followRow(_ follow: FollowModel, role: FollowRole) -> some View {
-        let followerItem = viewModel.followerProfile(for: follow)
-        let targetItem = viewModel.targetProfile(for: follow)
-        let localParentKeys = Set(
-            [
-                viewModel.parentIdentity?.publicKeyBech32?.lowercased(),
-                viewModel.parentIdentity?.publicKeyHex.lowercased()
-            ].compactMap { $0 }
-        )
-
-        let parentKey = viewModel.remoteParentKey(for: follow)
-        let needsKeyPackages: Bool = {
-            guard role == .incoming else { return false }
-            guard let key = parentKey else { return true }
-            return !viewModel.hasPendingKeyPackages(for: key)
-        }()
-
-        return VStack(alignment: .leading, spacing: 6) {
-            switch role {
-            case .incoming:
-                let localName = targetItem?.displayName ?? "This child"
-                Text("\(localName) ← \(shortKey(follow.followerChild))")
-                    .font(.subheadline)
-                Text("Waiting for you to accept the Marmot invite")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            case .outgoing:
-                let localName = followerItem?.displayName ?? "This child"
-                Text("\(localName) → \(shortKey(follow.targetChild))")
-                    .font(.subheadline)
-                Text("Waiting for the other parent to accept")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            case .active:
-                let followerName = followerItem?.displayName ?? shortKey(follow.followerChild)
-                let targetName = targetItem?.displayName ?? shortKey(follow.targetChild)
-                Text("\(followerName) ↔︎ \(targetName)")
-                    .font(.subheadline)
-                Text("Families in this Marmot group can watch each other's shared videos.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let summary = viewModel.groupSummary(for: follow) {
-                groupSummaryCard(summary: summary)
-            }
-
-            if role == .active,
-               let stats = viewModel.shareStats(for: follow) {
-                remoteShareStatsCard(stats: stats)
-            }
-
-            if let parentKey,
-               !localParentKeys.contains(parentKey.lowercased()) {
-                Text("Parent: \(shortKey(parentKey))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            if role == .incoming {
-                if needsKeyPackages {
-                    Text("Paste the other parent's Marmot invite link in the Marmot Invite sheet before approving so we can capture their key packages.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                if approvingFollowID == follow.id {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Button("Approve") {
-                        approvingFollowID = follow.id
-                        Task {
-                            defer { approvingFollowID = nil }
-                            _ = await viewModel.approveFollow(follow)
-                        }
-                    }
-                    .buttonStyle(KidPrimaryButtonStyle())
-                    .controlSize(.small)
-                    .disabled(needsKeyPackages)
-                }
-            }
-        }
-        .padding(.vertical, 4)
-        .textSelection(.enabled)
-    }
 
     @ViewBuilder
     private func groupSummaryCard(summary: ParentZoneViewModel.GroupSummary) -> some View {

@@ -112,7 +112,8 @@ private func makeHarness() throws -> (
         storageClient: storageClient,
         keyStore: keyStore
     )
-    let mdkActor = ApprovalStubMessageMdkActor()
+    let tempMdkURL = rootURL.appendingPathComponent("mdk-test.sqlite")
+    let mdkActor = try! MdkActor(databaseURL: tempMdkURL)
     let messagePublisher = ApprovalStubMessagePublisher()
     let marmotShareService = MarmotShareService(
         mdkActor: mdkActor,
@@ -152,17 +153,6 @@ private func makeHarness() throws -> (
 }
 
 // MARK: - Stubs
-
-actor ApprovalStubMessageMdkActor: MarmotMessageProducing {
-    func createMessage(
-        mlsGroupId: String,
-        senderPublicKey: String,
-        content: String,
-        kind: UInt16
-    ) throws -> String {
-        #"{"id":"event123","group":"\#(mlsGroupId)"}"#
-    }
-}
 
 actor ApprovalStubMessagePublisher: MarmotMessagePublishing {
     private(set) var publishedPayloads: [(groupId: String, json: String, relayOverride: [URL]?)] = []

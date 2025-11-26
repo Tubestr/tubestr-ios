@@ -41,6 +41,7 @@ final class AppEnvironment: ObservableObject {
     let videoSharePublisher: VideoSharePublisher
     let videoShareCoordinator: VideoShareCoordinator
     let parentKeyPackageStore: ParentKeyPackageStore
+    let keyPackageDiscovery: KeyPackageDiscovery
     let groupMembershipCoordinator: any GroupMembershipCoordinating
     let reportStore: ReportStore
     let reportCoordinator: ReportCoordinator
@@ -98,6 +99,7 @@ final class AppEnvironment: ObservableObject {
         videoSharePublisher: VideoSharePublisher,
         videoShareCoordinator: VideoShareCoordinator,
         parentKeyPackageStore: ParentKeyPackageStore,
+        keyPackageDiscovery: KeyPackageDiscovery,
         groupMembershipCoordinator: any GroupMembershipCoordinating,
         reportStore: ReportStore,
         reportCoordinator: ReportCoordinator,
@@ -145,6 +147,7 @@ final class AppEnvironment: ObservableObject {
         self.videoSharePublisher = videoSharePublisher
         self.videoShareCoordinator = videoShareCoordinator
         self.parentKeyPackageStore = parentKeyPackageStore
+        self.keyPackageDiscovery = keyPackageDiscovery
         self.groupMembershipCoordinator = groupMembershipCoordinator
         self.reportStore = reportStore
         self.reportCoordinator = reportCoordinator
@@ -161,7 +164,6 @@ final class AppEnvironment: ObservableObject {
         self.onboardingState = onboardingState
         self.storageModeSelection = storageModeSelection
 
-        // Relationship store removed - using MDK groups directly
         // Group changes trigger subscription refresh via NotificationCenter.marmotStateDidChange
         NotificationCenter.default.addObserver(
             forName: .marmotStateDidChange,
@@ -223,6 +225,10 @@ enum StorageModeError: Error {
         let cryptoService = CryptoEnvelopeService()
         let nostrClient = RelayPoolNostrClient()
         let relayDirectory = RelayDirectory(userDefaults: defaults)
+        let keyPackageDiscovery = KeyPackageDiscovery(
+            nostrClient: nostrClient,
+            relayDirectory: relayDirectory
+        )
         let marmotTransport = MarmotTransport(
             nostrClient: nostrClient,
             relayDirectory: relayDirectory,
@@ -401,6 +407,7 @@ enum StorageModeError: Error {
             videoSharePublisher: videoSharePublisher,
             videoShareCoordinator: videoShareCoordinator,
             parentKeyPackageStore: parentKeyPackageStore,
+            keyPackageDiscovery: keyPackageDiscovery,
             groupMembershipCoordinator: groupMembershipCoordinator,
             reportStore: reportStore,
             reportCoordinator: reportCoordinator,

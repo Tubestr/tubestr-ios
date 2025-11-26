@@ -161,10 +161,6 @@ actor MarmotProjectionStore {
         }
 
         switch messageKind {
-        case .follow:
-            logger.debug("Received follow message in projection store - handled by ParentZoneViewModel")
-            // Follow messages are handled by ParentZoneViewModel.processFollowMessagesInGroup
-            // We just log and skip here to avoid duplicate processing
         case .videoShare:
             try projectShare(content: content, mlsGroupId: message.mlsGroupId, processedAt: processedDate)
         case .videoRevoke:

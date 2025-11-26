@@ -126,8 +126,7 @@ actor NostrEventReducer {
     }
 
     private func reduceFollowPointer(_ event: NostrEvent) async throws {
-        // Follow pointers deprecated - using MDK groups directly
-        logger.debug("Skipping follow pointer event \(event.idHex, privacy: .public) - follows removed")
+        logger.debug("Skipping deprecated follow pointer event \(event.idHex, privacy: .public)")
     }
 
     private func reduceVideoTombstone(_ event: NostrEvent) async throws {

@@ -88,39 +88,46 @@ final class MarmotEndToEndTests: XCTestCase {
         }
         print("✅ Family A parent identity: \(parentIdentity.publicKeyHex.prefix(16))...")
         
-        print("📦 Creating key package for Family A...")
-        let relays = await familyA.environment.relayDirectory.currentRelayURLs()
-        let relayStrings = relays.map(\.absoluteString)
-        print("   Using relays: \(relayStrings)")
-        let keyPackageResult = try await familyA.environment.mdkActor.createKeyPackage(
-            forPublicKey: parentIdentity.publicKeyHex,
-            relays: relayStrings
-        )
-        
-        // Encode the key package as a Nostr event
-        let keyPackageEvent = try KeyPackageEventEncoder.encode(
-            result: keyPackageResult,
-            signingKey: parentIdentity.keyPair
-        )
-        print("✅ Key package created and encoded")
-        
-        print("💌 Creating follow invite...")
+        print("📦 Publishing key package for Family A to relay...")
+        await vmA.publishKeyPackageToRelays()
+        print("✅ Key package published to relay")
+
+        // Wait for relay propagation
+        print("   Waiting 2s for relay propagation...")
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+
+        print("💌 Creating follow invite (v3 - no embedded key packages)...")
         print("   Family A parent (hex): \(parentIdentity.publicKeyHex.prefix(16))...")
         if let bech32 = parentIdentity.publicKeyBech32 {
             print("   Family A parent (bech32): \(bech32.prefix(16))...")
         }
         let invite = ParentZoneViewModel.FollowInvite(
-            version: 2,
+            version: 3,
             childName: childA.profile.name,
             childPublicKey: childPublicKey,
-            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex,
-            parentKeyPackages: [keyPackageEvent]
+            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex
         )
-        print("✅ Invite created with \(invite.parentKeyPackages?.count ?? 0) key package(s)")
+        print("✅ Invite created")
         print("   Invite parent key: \(invite.parentPublicKey.prefix(16))...")
 
-        print("📥 Family B: Storing pending key packages...")
-        vmB.storePendingKeyPackages(from: invite)
+        print("📥 Family B: Fetching key packages from relay...")
+        await vmB.fetchKeyPackagesFromRelay(for: invite)
+
+        // Wait for fetch to complete
+        let fetchComplete = try await waitUntil("Key packages fetched") {
+            if case .fetched = vmB.keyPackageFetchState { return true }
+            if case .failed = vmB.keyPackageFetchState { return true }
+            return false
+        }
+        XCTAssertTrue(fetchComplete, "Key package fetch should complete")
+
+        if case .failed(_, let error) = vmB.keyPackageFetchState {
+            XCTFail("Key package fetch failed: \(error)")
+            return
+        }
+        if case .fetched(_, let count) = vmB.keyPackageFetchState {
+            print("✅ Fetched \(count) key package(s) from relay")
+        }
 
         guard let childB = vmB.childIdentities.first else {
             return XCTFail("Family B missing child identity")

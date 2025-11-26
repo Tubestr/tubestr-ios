@@ -74,7 +74,6 @@ Rationale: XChaCha for long nonces and robust file encryption; X25519 + HKDF for
 - Use NIP-33 replaceables where we still need public pointers.
 
 ### Replaceable (NIP-33) Kinds
-- **kind 30301 — Child follow pointer**: DEPRECATED. Follow relationships replaced by MDK group membership.
 - **kind 30302 — Video tombstone**
   - `d = "mytube/video:<video_id>"`.
   - Published when video is deleted to notify all group members.
@@ -104,17 +103,6 @@ All Marmot payloads include:
 - `by` — `npub` of signer (parent or delegated child key)
 - Optional `v` (e.g. `"v": 1`) for forward compatibility.
 
-### 5.1 Follow Messages - DEPRECATED
-
-**Follow relationships have been removed** in favor of MDK group membership. The social graph is now determined entirely by who is in which Marmot groups.
-
-**Migration**: Fresh installs required. No backward compatibility with follow-based builds.
-
-**Replacement**: Use MDK APIs directly:
-- `mdkActor.getGroups()` - list all groups the parent is in
-- `mdkActor.getMembers(inGroup:)` - see who's in each group
-- `groupMembershipCoordinator.addMembers()` - invite another family
-- `groupMembershipCoordinator.removeMembers()` - remove a family
 
 ### 5.2 Video Share (Parent-Only Groups)
 - Type: `t = "mytube/video_share"`

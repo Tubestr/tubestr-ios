@@ -115,7 +115,7 @@ actor LikePublisher {
         viewerChildHex: String,
         ownerChildHex: String
     ) throws -> String {
-        // Follow relationships removed - get group from remote video store
+        // Get group from remote video store
         // Remote videos should have the group ID they came from
         throw LikePublisherError.groupUnavailable  // TODO: Get from remote video metadata
     }
