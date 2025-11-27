@@ -1031,7 +1031,7 @@ extension OnboardingFlowView {
             }
             let relayStrings = relays.map(\.absoluteString)
 
-            // Create key package for parent - MDK requires at least one key package (the creator's)
+            // Create key package for parent - publish for discovery by other parents
             let keyPackageResult = try await environment.mdkActor.createKeyPackage(
                 forPublicKey: parentIdentity.publicKeyHex,
                 relays: relayStrings
@@ -1046,6 +1046,7 @@ extension OnboardingFlowView {
             )
 
             // Creator is automatically added to the group, don't include in member list
+            // TODO: Multi-device sync - need MDK support to generate self-welcome for creator
             let request = GroupMembershipCoordinator.CreateGroupRequest(
                 creatorPublicKeyHex: parentIdentity.publicKeyHex,
                 memberKeyPackageEventsJson: [],  // Empty - creator joins automatically

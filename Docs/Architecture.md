@@ -134,5 +134,5 @@ Additional protocol notes:
 
 For further details, see:
 - `Docs/MyTubeImplementationPlan.md` – roadmap & outstanding engineering tasks.
-- `Docs/MyTubeProtocolSpec.md` – data formats for follows, shares, and device provisioning.
+- `Docs/MyTubeProtocolSpec.md` – data formats for Marmot group messaging, shares, and device provisioning.
 - `Docs/Rust-Nostr.md` – nostr-sdk-swift usage notes and NIP references.

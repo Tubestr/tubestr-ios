@@ -1162,6 +1162,7 @@ final class ParentZoneViewModel: ObservableObject {
 
         // Create group with remote parent + local children as initial members
         // (creator/local parent is added automatically)
+        // TODO: Multi-device sync - need MDK support to generate self-welcome for creator
         let request = GroupMembershipCoordinator.CreateGroupRequest(
             creatorPublicKeyHex: parentIdentity.publicKeyHex,
             memberKeyPackageEventsJson: allKeyPackages,

@@ -10,7 +10,7 @@ This document captures the complete protocol, crypto, storage, and product requi
 
 - **Client:** iPad-only SwiftUI app focused on local-first creation and playback.
 - **Control plane:** Public Nostr relays (default `wss://no.str.cr`; users can manage relay list).
-- **Graph & safety:** Cross-family sharing requires bilateral parent-approved follows.
+- **Graph & safety:** Cross-family sharing uses parent-only MDK groups formed via bilateral parent welcomes (no follow pointers, no child keys).
 - **Media plane:** Blobs live in MinIO, encrypted client-side. Nostr only carries encrypted metadata and wrapped keys.
 - **Deletion:** Owners can revoke and delete; all clients must hide and purge on receipt.
 - **Monetization:** Free tier is local-only. Premium ($20/year) unlocks encrypted upload, sharing, and sync.
@@ -45,7 +45,7 @@ This document captures the complete protocol, crypto, storage, and product requi
 ## 3. Cryptography
 
 ### Marmot Messaging
-- MDK maintains MLS sessions per child group; `MarmotShareService` encodes payloads as JSON, calls `mdk.createMessage`, and tags them with the appropriate `MarmotMessageKind` (`kind 4543`–`4547`).
+- MDK maintains MLS sessions per child profile group (parent-only membership); `MarmotShareService` encodes payloads as JSON, calls `mdk.createMessage`, and tags them with the appropriate `MarmotMessageKind` (`kind 4543`–`4547`).
 - Rumor events are published via `MarmotTransport` to every relay backing the child’s group. Gift wraps (NIP-59) are only used for welcomes so new members can decrypt `welcomeRumorsJson`.
 - Messaging now exclusively uses MDK/MLS; confidentiality and membership enforcement live there.
 
@@ -100,13 +100,13 @@ These are the `MarmotMessageKind` values produced by `MarmotShareService`:
 
 All Marmot payloads include:
 - `ts` — Unix seconds
-- `by` — `npub` of signer (parent or delegated child key)
+- `by` — `npub` of signer (parent key only; children never sign)
 - Optional `v` (e.g. `"v": 1`) for forward compatibility.
 
 
 ### 5.2 Video Share (Parent-Only Groups)
 - Type: `t = "mytube/video_share"`
-- Recipients: All members of the child profile's associated Marmot group (parent identities only).
+- Recipients: All parent members of the child profile's associated Marmot group (one group per profile).
 - Author: Always the parent's key, with child metadata in payload.
 
 ```json
@@ -124,7 +124,7 @@ All Marmot payloads include:
     "nonce_media": "base64-24B",
     "media_key": "base64-32B"
   },
-  "policy": { "visibility": "followers", "expires_at": null, "version": 1 },
+  "policy": { "visibility": "group", "expires_at": null, "version": 1 },
   "by": "npubParent",
   "ts": 1730000300,
   "v": 1
@@ -137,10 +137,11 @@ All Marmot payloads include:
 - `child_profile_id`: Explicit UUID for client-side correlation
 - `crypto.wrap`: Removed - MLS handles encryption, no per-recipient wrapping needed
 - `by`: Always parent npub (children don't sign)
+- Membership is parent-only; children never join MDK groups
 
 ### 5.3 Video Revoke (stop showing)
 - Type: `t = "mytube/video_revoke"`
-- Recipients: prior recipients (viewer child devices + their parents) and owner parents (same MDK group fan-out).
+- Recipients: all current members of the video's Marmot group (parents only).
 
 ```json
 {
@@ -154,7 +155,7 @@ All Marmot payloads include:
 
 ### 5.4 Video Delete (purge caches)
 - Type: `t = "mytube/video_delete"`
-- Recipients: same broadcast set as revoke.
+- Recipients: same broadcast set as revoke (entire group).
 
 ```json
 {
@@ -169,14 +170,14 @@ Client must purge feed entries and local decrypted files immediately.
 
 ### 5.5 Like
 - Type: `t = "mytube/like"`
-- Recipients: owner child device and owner parents.
+- Recipients: all members of the video's group (parents).
 
 ```json
 {
   "t": "mytube/like",
   "video_id": "uuid-v4",
-  "viewer_child": "npubChildViewer",
-  "by": "npubSignerParentOrDelegatedChild",
+  "viewer_child": "profile-uuid-without-dashes",
+  "by": "npubSignerParent",
   "ts": 1730000600
 }
 ```
@@ -189,7 +190,7 @@ Client must purge feed entries and local decrypted files immediately.
 {
   "t": "mytube/report",
   "video_id": "uuid-v4",
-  "subject_child": "npubChildSubject",
+  "subject_child": "profile-uuid-without-dashes",
   "reason": "string",
   "by": "npubSignerParent",
   "ts": 1730000700
@@ -200,14 +201,14 @@ Client must purge feed entries and local decrypted files immediately.
 
 ## 6. Client State Machines
 
-### 6.1 Follow (pointers + MDK)
-- Maintain latest kind `30301` per child pair for discoverability.
-- Active when:
-  1. Latest follow Marmot payload shows `approved_from=true` and `approved_to=true`.
-  2. MDK reports the remote child’s `mlsGroupId` membership (no newer `revoked` or `blocked`).
+### 6.1 Group Membership (parent-only)
+- A group is created lazily when the first cross-family invite is accepted; `profile.mlsGroupId` is written then.
+- Active when MDK returns the group with ≥2 parent members and no pending welcome for the local device.
+- Children never appear in MDK membership; they are local profiles tied to the group via `mlsGroupId`.
+- No follow pointers or NIP-33 discoverability events remain; the group list is the source of truth.
 
 ### 6.2 Video Lifecycle
-- `local_only` → (Premium) share: enqueue `video_share` Marmot messages per eligible group.
+- `local_only` → (Premium) share: enqueue `video_share` Marmot messages to the profile’s `mlsGroupId` (if present).
 - Revoke: send `video_revoke`; clients hide immediately.
 - Delete: hard delete blobs, send `video_delete`; clients purge caches.
 - Optional: publish kind `30302` tombstone for convergence.
@@ -219,15 +220,15 @@ Client must purge feed entries and local decrypted files immediately.
 ### Buckets & Keys
 - Bucket: `mytube`.
 - Keys:
-  - Videos: `media/<ownerChildPrefix>/<video_id>.mp4.enc`
-  - Thumbs: `thumbs/<ownerChildPrefix>/<video_id>.jpg.enc`
-- `ownerChildPrefix` can be first 16 chars of child `npub`.
+  - Videos: `media/<childProfilePrefix>/<video_id>.mp4.enc`
+  - Thumbs: `thumbs/<childProfilePrefix>/<video_id>.jpg.enc`
+- `childProfilePrefix` can be the first 16 chars of the child profile UUID (without dashes).
 
 ### Helper HTTP API (minimal)
 - Hosted service with minimal logic; primarily storage.
 
 #### `POST /upload/init`
-- Request: `{"video_id":"uuid","owner_child":"npubChildOwner","size":12345678,"mime":"video/mp4"}`
+- Request: `{"video_id":"uuid","owner_child":"child-profile-uuid","size":12345678,"mime":"video/mp4"}`
 - Response: `{"put_url":"...","key":"media/...mp4.enc","thumb_put_url":"...","thumb_key":"thumbs/...jpg.enc","expires_in":600}`
 
 #### `POST /upload/commit`
@@ -261,26 +262,27 @@ Deletion semantics: hard delete both objects; future GETs return 404. The `video
 
 ## 9. Rate Limits (Client-Enforced)
 
-- Follow requests: 10/day per child.
-- Approvals: 50/day per parent.
-- Uploads: 20/day per child.
-- Likes: 120/hour per child.
+- Group invites: 10/day per child profile (outbound).
+- Welcome approvals: 50/day per parent.
+- Uploads: 20/day per child profile.
+- Likes: 120/hour per child profile.
 - Publish to ≤6 relays per event.
 
 ---
 
 ## 10. Sequences (End-to-End)
 
-### 10.1 Follow X → Y
-1. Parent of X sends `mytube/follow` Marmot payload with `approved_from=true`.
-2. Parent of Y sends the matching payload with `approved_to=true`.
-3. Both approvals recorded in MDK ⇒ follow active.
+### 10.1 Connect Families (create group)
+1. Parent A collects Parent B’s key package via QR/share in Parent Zone.
+2. Parent A calls `createGroup` with both parent key packages (2-member minimum) and publishes the evolution + welcomes through `MarmotTransport`.
+3. Parent B receives welcome (gift-wrapped), accepts, and MDK now returns the group with both parents.
+4. The child profile on each device records the returned `mlsGroupId`.
 
 ### 10.2 Share a Video
 1. App (Premium) generates `Vk`, encrypts MP4/JPG (XChaCha20-Poly1305), uploads via `/upload/init` → PUT → `/upload/commit`.
-2. Compute eligible recipients = active followers of owner child (`mlsGroupId` membership).
-3. For each group, send a `video_share` Marmot message (with wrapped key and URLs).
-4. Recipient downloads ciphertext (signed GET if private), unwraps `Vk`, decrypts, and plays.
+2. Look up the profile’s `mlsGroupId`; if none, prompt parent to connect (no share).
+3. Send a single `video_share` Marmot message to that group (MLS handles fan-out).
+4. Recipient downloads ciphertext (signed GET if private), uses MLS session key to decrypt payload, and plays.
 
 ### 10.3 Delete a Video
 1. Owner parent selects delete (PIN gated).
@@ -294,7 +296,7 @@ Deletion semantics: hard delete both objects; future GETs return 404. The `video
 ## 11. Client Responsibilities
 
 - Keep all Marmot payloads inside MDK (MLS handles encryption); no child IDs exposed publicly beyond replaceable IDs.
-- Verify signatures on every event and NIP-26 delegations for child-signed actions.
+- Verify signatures on every event (parent-only). Delegation code paths remain stubbed but unused.
 - Track recipient list at share time for revoke/delete fan-out.
 - Converge on latest replaceable per `d` tag (last-writer-wins by `created_at`, relay ID tie-breaker).
 - Respect delete: purge decrypted files and thumbnails on `video_delete`.
@@ -313,14 +315,14 @@ Deletion semantics: hard delete both objects; future GETs return 404. The `video
 
 ## 13. QA Checklist
 
-1. **Graph:** A↔B active; A1→B1 follow becomes active only after both approvals.
-2. **Share:** A1 shares; B1 receives Marmot message, decrypts via MDK, downloads, decrypts, plays.
-3. **Delete:** A1 deletes; revoke Marmot message hides; blob delete; delete Marmot message purges; subsequent GET returns 404.
-4. **Offline:** B1 offline during delete; on reconnect, receives delete Marmot message and purges.
-5. **Block:** Family B blocks A; new shares stop; old items hidden on next sync.
+1. **Graph:** Families connect → profile gets `mlsGroupId`; MDK shows ≥2 parent members; welcomes accepted.
+2. **Share:** Share from child profile A → group rumor delivered; remote family decrypts via MDK, downloads, decrypts, plays.
+3. **Delete:** Owner deletes; revoke hides; blob delete; delete purges; subsequent GET returns 404.
+4. **Offline:** Remote device offline during delete; on reconnect, receives delete rumor and purges.
+5. **Block:** Family B removes A from group; new shares stop; old items hidden on next sync.
 6. **Relays:** With one relay down, events still converge through others.
 7. **Paywall:** Free tier cannot upload/share; Premium unlocks; UI reflects state.
-8. **Delegation:** Child device limited to delegated kinds per NIP-26.
+8. **Identity:** No child-signed events observed; all rumors signed by parent key.
 
 ---
 

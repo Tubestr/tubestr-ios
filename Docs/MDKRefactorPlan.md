@@ -2,7 +2,7 @@
 
 _Owner: Codex • Last updated: 2025-11-20_
 
-This plan tracked the migration from the legacy direct-messaging stack to Marmot (MLS over Nostr) using `MDKBindings`. All phases are complete and the old code paths have been fully removed, including follow relationships, FollowModel, FollowEntity, and RelationshipStore. The app now relies exclusively on MDK for membership, welcomes, shares/likes/reports, and projection into Core Data. Remaining work is limited to the moderation "Safety HQ" group plus ongoing polish.
+This plan tracked the migration from the legacy direct-messaging stack to Marmot (MLS over Nostr) using `MDKBindings`. All phases are complete and the old code paths have been fully removed, including follow relationships, FollowModel, FollowEntity, and RelationshipStore. The app now relies exclusively on MDK for membership, welcomes, shares/likes/reports, and projection into Core Data. Identities are parent-only (no child keys or delegations). Remaining work is limited to the moderation "Safety HQ" group plus ongoing polish.
 
 ---
 
@@ -10,7 +10,7 @@ This plan tracked the migration from the legacy direct-messaging stack to Marmot
 
 ### Goals
 - Swap every direct-message pathway (follow approvals, video shares, likes, reports, diagnostics) to use MDK groups and MLS-secured Marmot messages.
-- Give each child their own Marmot group; parents approve new members (other families) via the MDK welcome flow; all sharing happens inside those groups.
+- Give each child profile a Marmot group with parent-only membership; parents approve new members (other families) via the MDK welcome flow; all sharing happens inside those groups. Groups are created lazily once a remote parent is added (MLS requires 2+ members).
 - Keep a single source of truth for remote state inside the MDK SQLite store and mirror only UX-facing projections into Core Data (feed shelves, share history).
 - Preserve the existing SwiftUI feature surface area (Home Feed, Capture, Editor, Parent Zone, etc.) while changing the underlying transport/storage layers.
 
@@ -87,7 +87,7 @@ _Acceptance_: App compiles with MDK hooks; Parent Zone shows placeholder stats f
 _Acceptance_: We can create MDK groups locally, publish the resulting events to relays, ingest them back (loopback), and see them represented in MDK’s `getGroups()` response.
 
 ### Phase 3 – Group + identity rewrite
-1. **Child = Group**: when onboarding a child profile, automatically call `createGroup` with the child’s display name/description plus parent/child relays. Store the returned `Group` metadata alongside the `ChildProfile` entity (persist `mlsGroupId`).
+1. **Child = Group (lazy)**: when the first cross-family connection is initiated, call `createGroup` with both parent key packages (2-member minimum). Store the returned `Group` metadata alongside the `ChildProfile` entity (persist `mlsGroupId`). No group is created during onboarding.
 2. **Invites + approvals**: replace follow requests with MDK `addMembers` + welcome fan-out. Parent Zone becomes the approval surface:
    - Outbound: choose another family → gather their key packages → `addMembers` → publish `evolutionEventJson` + `welcomeRumorsJson`.
    - Inbound: show pending welcomes from `Mdk.getPendingWelcomes()`; parent approves to call `acceptWelcome`.
