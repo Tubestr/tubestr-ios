@@ -63,7 +63,7 @@ struct HomeFeedView: View {
         .alert("Add Trusted Creators", isPresented: $showingTrustedCreatorsInfo) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Ask a parent to open Parent Zone → Connections to scan a Marmot invite or approve a trusted family.")
+            Text("Ask a parent to open Parent Zone → Connections to scan a connection invite or approve a trusted family.")
         }
     }
 
@@ -85,7 +85,7 @@ struct HomeFeedView: View {
     private var sharedSection: some View {
         VStack(alignment: .leading, spacing: 24) {
             if viewModel.sharedSections.isEmpty {
-                Text("No videos from trusted families yet. Ask a parent to open Parent Zone → Connections to share or accept Marmot invites.")
+                Text("No videos from trusted families yet. Ask a parent to open Parent Zone → Connections to share or accept connection invites.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {

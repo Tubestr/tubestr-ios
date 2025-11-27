@@ -183,65 +183,41 @@ final class RemoteVideoStore {
 
     func shareSummaries() throws -> [RemoteShareSummary] {
         let context = persistence.newBackgroundContext()
-        var summaries: [RemoteShareSummary] = []
-        var capturedError: Error?
+        return try context.performAndCapture {
+            let request = RemoteVideoEntity.fetchRequest()
+            let entities = try context.fetch(request)
+            var builders: [String: RemoteShareAccumulator] = [:]
 
-        context.performAndWait {
-            do {
-                let request = RemoteVideoEntity.fetchRequest()
-                let entities = try context.fetch(request)
-                var builders: [String: RemoteShareAccumulator] = [:]
+            for entity in entities {
+                guard let model = RemoteVideoModel(entity: entity) else { continue }
+                var builder = builders[model.ownerChild, default: RemoteShareAccumulator()]
+                builder.ingest(model: model)
+                builders[model.ownerChild] = builder
+            }
 
-                for entity in entities {
-                    guard let model = RemoteVideoModel(entity: entity) else { continue }
-                    var builder = builders[model.ownerChild, default: RemoteShareAccumulator()]
-                    builder.ingest(model: model)
-                    builders[model.ownerChild] = builder
-                }
-
-                summaries = builders.map { owner, builder in
-                    builder.makeSummary(owner: owner)
-                }
-            } catch {
-                capturedError = error
+            return builders.map { owner, builder in
+                builder.makeSummary(owner: owner)
             }
         }
-
-        if let error = capturedError {
-            throw error
-        }
-        return summaries
     }
 
     func updateStatus(videoId: String, status: String) throws -> RemoteVideoModel? {
         let context = persistence.newBackgroundContext()
-        var model: RemoteVideoModel?
-        var thrownError: Error?
+        return try context.performAndCapture {
+            let request = RemoteVideoEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "videoId == %@", videoId)
+            request.fetchLimit = 1
 
-        context.performAndWait {
-            do {
-                let request = RemoteVideoEntity.fetchRequest()
-                request.predicate = NSPredicate(format: "videoId == %@", videoId)
-                request.fetchLimit = 1
-
-                guard let entity = try context.fetch(request).first else {
-                    return
-                }
-
-                entity.status = status
-                entity.lastSyncedAt = Date()
-                try context.save()
-
-                model = RemoteVideoModel(entity: entity)
-            } catch {
-                thrownError = error
+            guard let entity = try context.fetch(request).first else {
+                return nil
             }
-        }
 
-        if let error = thrownError {
-            throw error
+            entity.status = status
+            entity.lastSyncedAt = Date()
+            try context.save()
+
+            return RemoteVideoModel(entity: entity)
         }
-        return model
     }
 
     func markVideoAsBlocked(
@@ -251,47 +227,36 @@ final class RemoteVideoStore {
         timestamp: Date = Date()
     ) throws -> RemoteVideoModel? {
         let context = persistence.newBackgroundContext()
-        var model: RemoteVideoModel?
-        var thrownError: Error?
         let fileManager = FileManager.default
 
-        context.performAndWait {
-            do {
-                let request = RemoteVideoEntity.fetchRequest()
-                request.predicate = NSPredicate(format: "videoId == %@", videoId)
-                request.fetchLimit = 1
+        return try context.performAndCapture {
+            let request = RemoteVideoEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "videoId == %@", videoId)
+            request.fetchLimit = 1
 
-                guard let entity = try context.fetch(request).first else {
-                    return
-                }
-
-                if let mediaPath = entity.localMediaPath {
-                    let fileURL = storagePaths.rootURL.appendingPathComponent(mediaPath)
-                    try? fileManager.removeItem(at: fileURL)
-                }
-                if let thumbPath = entity.localThumbPath {
-                    let fileURL = storagePaths.rootURL.appendingPathComponent(thumbPath)
-                    try? fileManager.removeItem(at: fileURL)
-                }
-
-                entity.localMediaPath = nil
-                entity.localThumbPath = nil
-                entity.lastDownloadedAt = nil
-                entity.status = RemoteVideoModel.Status.blocked.rawValue
-                entity.downloadError = reason
-                entity.lastSyncedAt = timestamp
-                try context.save()
-
-                model = RemoteVideoModel(entity: entity)
-            } catch {
-                thrownError = error
+            guard let entity = try context.fetch(request).first else {
+                return nil
             }
-        }
 
-        if let error = thrownError {
-            throw error
+            if let mediaPath = entity.localMediaPath {
+                let fileURL = storagePaths.rootURL.appendingPathComponent(mediaPath)
+                try? fileManager.removeItem(at: fileURL)
+            }
+            if let thumbPath = entity.localThumbPath {
+                let fileURL = storagePaths.rootURL.appendingPathComponent(thumbPath)
+                try? fileManager.removeItem(at: fileURL)
+            }
+
+            entity.localMediaPath = nil
+            entity.localThumbPath = nil
+            entity.lastDownloadedAt = nil
+            entity.status = RemoteVideoModel.Status.blocked.rawValue
+            entity.downloadError = reason
+            entity.lastSyncedAt = timestamp
+            try context.save()
+
+            return RemoteVideoModel(entity: entity)
         }
-        return model
     }
 
     @discardableResult
@@ -302,61 +267,52 @@ final class RemoteVideoStore {
         mlsGroupId: String?
     ) throws -> RemoteVideoModel {
         let context = persistence.newBackgroundContext()
-        var model: RemoteVideoModel?
-        var thrownError: Error?
 
-        context.performAndWait {
-            do {
-                let request = RemoteVideoEntity.fetchRequest()
-                request.predicate = NSPredicate(format: "videoId == %@", message.videoId)
-                request.fetchLimit = 1
+        let model: RemoteVideoModel? = try context.performAndCapture {
+            let request = RemoteVideoEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "videoId == %@", message.videoId)
+            request.fetchLimit = 1
 
-                let entity = try context.fetch(request).first ?? RemoteVideoEntity(context: context)
-                if entity.videoId == nil {
-                    entity.videoId = message.videoId
-                }
-                entity.ownerChild = message.ownerChild
-                if let title = message.meta?.title, !title.isEmpty {
-                    entity.title = title
-                } else if entity.title == nil {
-                    entity.title = "Untitled"
-                }
-                let resolvedDuration = message.meta?.duration ?? entity.duration
-                entity.duration = resolvedDuration
-                if let metaCreated = message.meta?.createdAtDate {
-                    entity.createdAt = metaCreated
-                } else if entity.createdAt == nil {
-                    entity.createdAt = Date(timeIntervalSince1970: message.ts)
-                }
-                entity.blobURL = message.blob.url
-                entity.thumbURL = message.thumb.url
-                let fallbackVisibility = entity.visibility ?? "followers"
-                entity.visibility = message.policy?.visibility ?? fallbackVisibility
-                entity.expiresAt = message.policy?.expiresAtDate
-                entity.metadataJSON = metadataJSON
-                if let cryptoData = try? jsonEncoder.encode(message.crypto),
-                   let cryptoString = String(data: cryptoData, encoding: .utf8) {
-                    entity.wrappedKeyJSON = cryptoString
-                }
-                if entity.status == nil ||
-                    entity.status == RemoteVideoModel.Status.revoked.rawValue ||
-                    entity.status == RemoteVideoModel.Status.deleted.rawValue {
-                    entity.status = RemoteVideoModel.Status.available.rawValue
-                }
-                entity.downloadError = nil
-                entity.lastSyncedAt = receivedAt
-                entity.mlsGroupId = mlsGroupId ?? entity.mlsGroupId
-
-                try context.save()
-                model = RemoteVideoModel(entity: entity)
-            } catch {
-                thrownError = error
+            let entity = try context.fetch(request).first ?? RemoteVideoEntity(context: context)
+            if entity.videoId == nil {
+                entity.videoId = message.videoId
             }
+            entity.ownerChild = message.ownerChild
+            if let title = message.meta?.title, !title.isEmpty {
+                entity.title = title
+            } else if entity.title == nil {
+                entity.title = "Untitled"
+            }
+            let resolvedDuration = message.meta?.duration ?? entity.duration
+            entity.duration = resolvedDuration
+            if let metaCreated = message.meta?.createdAtDate {
+                entity.createdAt = metaCreated
+            } else if entity.createdAt == nil {
+                entity.createdAt = Date(timeIntervalSince1970: message.ts)
+            }
+            entity.blobURL = message.blob.url
+            entity.thumbURL = message.thumb.url
+            let fallbackVisibility = entity.visibility ?? "followers"
+            entity.visibility = message.policy?.visibility ?? fallbackVisibility
+            entity.expiresAt = message.policy?.expiresAtDate
+            entity.metadataJSON = metadataJSON
+            if let cryptoData = try? jsonEncoder.encode(message.crypto),
+               let cryptoString = String(data: cryptoData, encoding: .utf8) {
+                entity.wrappedKeyJSON = cryptoString
+            }
+            if entity.status == nil ||
+                entity.status == RemoteVideoModel.Status.revoked.rawValue ||
+                entity.status == RemoteVideoModel.Status.deleted.rawValue {
+                entity.status = RemoteVideoModel.Status.available.rawValue
+            }
+            entity.downloadError = nil
+            entity.lastSyncedAt = receivedAt
+            entity.mlsGroupId = mlsGroupId ?? entity.mlsGroupId
+
+            try context.save()
+            return RemoteVideoModel(entity: entity)
         }
 
-        if let error = thrownError {
-            throw error
-        }
         guard let model else {
             throw RemoteVideoStoreError.entityDecodeFailed
         }
@@ -371,47 +327,36 @@ final class RemoteVideoStore {
         timestamp: Date
     ) throws -> RemoteVideoModel? {
         let context = persistence.newBackgroundContext()
-        var model: RemoteVideoModel?
-        var thrownError: Error?
         let fileManager = FileManager.default
 
-        context.performAndWait {
-            do {
-                let request = RemoteVideoEntity.fetchRequest()
-                request.predicate = NSPredicate(format: "videoId == %@", videoId)
-                request.fetchLimit = 1
+        return try context.performAndCapture {
+            let request = RemoteVideoEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "videoId == %@", videoId)
+            request.fetchLimit = 1
 
-                guard let entity = try context.fetch(request).first else {
-                    return
-                }
-
-                if let mediaPath = entity.localMediaPath {
-                    let url = storagePaths.rootURL.appendingPathComponent(mediaPath)
-                    try? fileManager.removeItem(at: url)
-                }
-                if let thumbPath = entity.localThumbPath {
-                    let url = storagePaths.rootURL.appendingPathComponent(thumbPath)
-                    try? fileManager.removeItem(at: url)
-                }
-
-                entity.status = status.rawValue
-                entity.downloadError = reason
-                entity.localMediaPath = nil
-                entity.localThumbPath = nil
-                entity.lastDownloadedAt = nil
-                entity.lastSyncedAt = timestamp
-
-                try context.save()
-                model = RemoteVideoModel(entity: entity)
-            } catch {
-                thrownError = error
+            guard let entity = try context.fetch(request).first else {
+                return nil
             }
-        }
 
-        if let error = thrownError {
-            throw error
+            if let mediaPath = entity.localMediaPath {
+                let url = storagePaths.rootURL.appendingPathComponent(mediaPath)
+                try? fileManager.removeItem(at: url)
+            }
+            if let thumbPath = entity.localThumbPath {
+                let url = storagePaths.rootURL.appendingPathComponent(thumbPath)
+                try? fileManager.removeItem(at: url)
+            }
+
+            entity.status = status.rawValue
+            entity.downloadError = reason
+            entity.localMediaPath = nil
+            entity.localThumbPath = nil
+            entity.lastDownloadedAt = nil
+            entity.lastSyncedAt = timestamp
+
+            try context.save()
+            return RemoteVideoModel(entity: entity)
         }
-        return model
     }
 
     // MARK: - Helpers

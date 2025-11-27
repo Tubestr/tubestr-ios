@@ -5,6 +5,7 @@
 //  Created by Codex on 11/06/25.
 //
 
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -21,10 +22,6 @@ struct OnboardingFlowView: View {
     @State private var newChildTheme: ThemeDescriptor = .ocean
     @State private var isCreatingChild = false
     @State private var childCreationError: String?
-    @State private var isPresentingImportChild = false
-    @State private var importChildName = ""
-    @State private var importChildSecret = ""
-    @State private var importChildTheme: ThemeDescriptor = .ocean
     private let introSlides = IntroSlide.slides
 
     init(environment: AppEnvironment) {
@@ -77,27 +74,6 @@ struct OnboardingFlowView: View {
                 onSave: handleChildCreation
             )
         }
-        .sheet(isPresented: $isPresentingImportChild) {
-            ChildImportSheet(
-                name: $importChildName,
-                secret: $importChildSecret,
-                theme: $importChildTheme,
-                onScan: {
-                    qrIntent = .parentChildImport
-                },
-                onCancel: {
-                    resetChildImportState()
-                },
-                onImport: {
-                    viewModel.importChildForParent(
-                        name: importChildName,
-                        secret: importChildSecret,
-                        theme: importChildTheme
-                    )
-                    resetChildImportState()
-                }
-            )
-        }
     }
 
     @ViewBuilder
@@ -111,8 +87,8 @@ struct OnboardingFlowView: View {
             parentKeyStep(mode: mode)
         case .parentChildSetup:
             parentChildSetupStep
-        case .childImport:
-            childImportStep
+        case .recovering:
+            recoveryStep
         case .ready:
             completionStep
         }
@@ -225,7 +201,7 @@ struct OnboardingFlowView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Welcome to Tubestr")
                     .font(.largeTitle.weight(.bold))
-                Text("Choose how you want to get started. You can set up a new family, bring an existing parent account to this iPad, or add a child device using a delegated key.")
+                Text("Choose how you want to get started. You can set up a new family or restore an existing account.")
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
@@ -251,19 +227,10 @@ struct OnboardingFlowView: View {
                 Button {
                     viewModel.startParentSetup(mode: .existing)
                 } label: {
-                    Label("I'm an existing parent", systemImage: "key.fill")
+                    Label("Restore my account", systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.large)
-
-                Button {
-                    viewModel.startChildImport()
-                } label: {
-                    Label("Import a child device", systemImage: "person.2.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderless)
                 .controlSize(.large)
             }
         }
@@ -272,12 +239,12 @@ struct OnboardingFlowView: View {
     private func parentKeyStep(mode: ViewModel.ParentMode) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                Text(mode == .new ? "Create Parent Identity" : "Import Parent Identity")
+                Text(mode == .new ? "Create Parent Identity" : "Restore Your Account")
                     .font(.title.bold())
 
                 Text(mode == .new
-                     ? "Parents hold the master key that signs delegations and approvals. We're creating a fresh secure key for you now—store the nsec safely once it appears."
-                     : "Paste or scan your parent nsec to bring your account onto this device. We'll keep it secured in the keychain.")
+                     ? "Parents hold the master key that signs delegations and approvals. We're creating a fresh secure key for you now—store the private key safely once it appears."
+                     : "Paste or scan your private key to restore your account. Your children will be recovered automatically.")
                     .foregroundStyle(.secondary)
 
                 if let parent = viewModel.parentIdentity {
@@ -289,7 +256,7 @@ struct OnboardingFlowView: View {
 
                     let secret = parent.secretKeyBech32 ?? parent.keyPair.privateKeyData.hexEncodedString()
                     SecureValueCard(
-                        title: "Parent nsec",
+                        title: "Parent Private Key",
                         value: secret,
                         isRevealed: viewModel.parentSecretVisible,
                         toggle: { viewModel.toggleParentSecretVisibility() },
@@ -329,70 +296,93 @@ struct OnboardingFlowView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .center)
                     } else {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Paste your nsec below or scan it from another device.")
-                                .foregroundStyle(.secondary)
-
-                            TextField("nsec1...", text: $viewModel.parentSecretInput)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .font(.system(.footnote).monospaced())
-                                .textFieldStyle(.roundedBorder)
-
-                            HStack {
-                                Button {
-                                    qrIntent = .parentSecret
-                                } label: {
-                                    Label("Scan QR", systemImage: "qrcode.viewfinder")
-                                }
-                                Button {
-                                    viewModel.importParentIdentity()
-                                } label: {
-                                    Text("Import nsec")
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                        }
+                        restoreAccountForm
                     }
                 }
             }
         }
     }
 
-    private var parentChildSetupStep: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Child Profiles & Delegated Keys")
-                    .font(.title.bold())
+    private var restoreAccountForm: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Private Key", systemImage: "key.fill")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
 
-                Text("Each child gets their own Tubestr profile with a delegated key. Share the nsec (and optional delegation tag) with the child’s iPad by scanning or copying.")
+                Text("Paste or scan your private key from another device.")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
+            }
 
-                HStack {
-                    Button {
-                        newChildName = ""
-                        newChildTheme = .ocean
-                        isPresentingNewChild = true
-                    } label: {
-                        Label("Add Child Profile", systemImage: "plus.circle.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("nsec1... or hex", text: $viewModel.parentSecretInput)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(.body).monospaced())
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color(.separator), lineWidth: 1)
+                    )
 
+                HStack(spacing: 12) {
                     Button {
-                        importChildName = ""
-                        importChildSecret = ""
-                        importChildTheme = .ocean
-                        isPresentingImportChild = true
+                        qrIntent = .parentSecret
                     } label: {
-                        Label("Import Child Key", systemImage: "square.and.arrow.down")
+                        Label("Scan QR Code", systemImage: "qrcode.viewfinder")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+
+                    Button {
+                        viewModel.importParentIdentity()
+                    } label: {
+                        Label("Restore", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(viewModel.parentSecretInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+            }
+
+            Text("Your private key is stored securely in the device keychain and never leaves this device.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.05), radius: 8, y: 4)
+        )
+    }
+
+    private var parentChildSetupStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Child Profiles")
+                    .font(.title.bold())
+
+                Text("Add profiles for each child who will use Tubestr. Each child gets their own personalized experience.")
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    newChildName = ""
+                    newChildTheme = .ocean
+                    isPresentingNewChild = true
+                } label: {
+                    Label("Add Child Profile", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
 
                 if viewModel.childEntries.isEmpty {
-                    Text("No child keys yet. Add at least one profile to finish setup.")
+                    Text("Add at least one child profile to finish setup.")
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 8)
                 } else {
@@ -406,11 +396,6 @@ struct OnboardingFlowView: View {
                                     if let secret = entry.secretKey {
                                         viewModel.copyToPasteboard(secret)
                                     }
-                                },
-                                copyDelegation: {
-                                    if let tag = entry.delegationTagDisplay {
-                                        viewModel.copyToPasteboard(tag)
-                                    }
                                 }
                             )
                         }
@@ -420,7 +405,7 @@ struct OnboardingFlowView: View {
                 Button {
                     viewModel.finishParentFlow()
                 } label: {
-                    Text("Finish Parent Setup")
+                    Text("Finish Setup")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -430,60 +415,69 @@ struct OnboardingFlowView: View {
         }
     }
 
-    private var childImportStep: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Import Child Device")
-                    .font(.title.bold())
-                Text("Paste or scan the delegated child nsec provided by your parent. We'll create a profile on this device using that key.")
-                    .foregroundStyle(.secondary)
+    private var recoveryStep: some View {
+        VStack(spacing: 32) {
+            Spacer()
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Child name")
-                        .font(.headline)
-                    TextField("e.g. Riley", text: $viewModel.childImportName)
-                        .textFieldStyle(.roundedBorder)
-                }
+            VStack(spacing: 24) {
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.1))
+                        .frame(width: 120, height: 120)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Child nsec")
-                        .font(.headline)
-                    TextField("nsec1...", text: $viewModel.childImportSecret)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.system(.footnote).monospaced())
-                        .textFieldStyle(.roundedBorder)
-
-                    Button {
-                        qrIntent = .childDeviceImport
-                    } label: {
-                        Label("Scan QR", systemImage: "qrcode.viewfinder")
-                            .frame(maxWidth: .infinity)
+                    if viewModel.isRecovering {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .scaleEffect(1.5)
+                    } else {
+                        Image(systemName: viewModel.recoveryFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundStyle(viewModel.recoveryFailed ? .orange : .green)
                     }
-                    .buttonStyle(.bordered)
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Theme")
-                        .font(.headline)
-                    Picker("Theme", selection: $viewModel.childImportTheme) {
-                        ForEach(ThemeDescriptor.allCases, id: \.self) { theme in
-                            Text(theme.displayName).tag(theme)
-                        }
+                VStack(spacing: 12) {
+                    Text(viewModel.isRecovering ? "Restoring Your Account" : (viewModel.recoveryFailed ? "Recovery Issue" : "Account Restored"))
+                        .font(.title.bold())
+
+                    Text(viewModel.recoveryStatusMessage)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                if let count = viewModel.recoveredChildCount, count > 0 {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.2.fill")
+                            .foregroundStyle(Color.accentColor)
+                        Text("\(count) child \(count == 1 ? "profile" : "profiles") recovered")
+                            .font(.headline)
                     }
-                    .pickerStyle(.segmented)
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.1))
+                    )
                 }
+            }
 
+            Spacer()
+
+            if !viewModel.isRecovering {
                 Button {
-                    viewModel.importChildDevice()
+                    viewModel.finishRecovery()
                 } label: {
-                    Text("Import Child Key")
+                    Text("Continue")
+                        .font(.headline)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
             }
         }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var completionStep: some View {
@@ -504,10 +498,6 @@ struct OnboardingFlowView: View {
         switch intent {
         case .parentSecret:
             viewModel.parentSecretInput = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .parentChildImport:
-            importChildSecret = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .childDeviceImport:
-            viewModel.childImportSecret = value.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
@@ -517,13 +507,6 @@ struct OnboardingFlowView: View {
         childCreationError = nil
         isCreatingChild = false
         isPresentingNewChild = false
-    }
-
-    private func resetChildImportState() {
-        importChildName = ""
-        importChildSecret = ""
-        importChildTheme = .ocean
-        isPresentingImportChild = false
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -610,7 +593,7 @@ extension OnboardingFlowView {
             case roleSelection
             case parentKey(ParentMode)
             case parentChildSetup
-            case childImport
+            case recovering
             case ready
         }
 
@@ -627,9 +610,12 @@ extension OnboardingFlowView {
         @Published var childEntries: [ChildEntry] = []
         @Published var childSecretVisibility: Set<UUID> = []
         @Published var errorMessage: String?
-        @Published var childImportName: String = ""
-        @Published var childImportSecret: String = ""
-        @Published var childImportTheme: ThemeDescriptor = .ocean
+
+        // Recovery state
+        @Published var isRecovering = false
+        @Published var recoveryFailed = false
+        @Published var recoveryStatusMessage = "Connecting to relays and looking for your children..."
+        @Published var recoveredChildCount: Int?
 
         var navigationTitle: String {
             switch step {
@@ -638,11 +624,11 @@ extension OnboardingFlowView {
             case .roleSelection:
                 return "Welcome"
             case .parentKey(let mode):
-                return mode == .new ? "Parent Key" : "Import Parent Key"
+                return mode == .new ? "Parent Key" : "Restore Account"
             case .parentChildSetup:
-                return "Child Keys"
-            case .childImport:
-                return "Import Child"
+                return "Child Profiles"
+            case .recovering:
+                return "Restoring"
             case .ready:
                 return "Done"
             }
@@ -650,7 +636,7 @@ extension OnboardingFlowView {
 
         var canGoBack: Bool {
             switch step {
-            case .introduction, .roleSelection, .ready:
+            case .introduction, .roleSelection, .recovering, .ready:
                 return false
             default:
                 return true
@@ -658,8 +644,8 @@ extension OnboardingFlowView {
         }
 
         private let environment: AppEnvironment
+        private let logger = Logger(subsystem: "com.mytube", category: "Onboarding")
         private var parentMode: ParentMode?
-        private var delegationCache: [UUID: ChildDelegation] = [:]
         private var lastCreatedChildID: UUID?
 
         init(environment: AppEnvironment) {
@@ -707,14 +693,6 @@ extension OnboardingFlowView {
             }
         }
 
-        func startChildImport() {
-            errorMessage = nil
-            childImportName = ""
-            childImportSecret = ""
-            childImportTheme = .ocean
-            step = .childImport
-        }
-
         func generateParentIdentity() {
             do {
                 parentIdentity = try environment.identityManager.generateParentIdentity(requireBiometrics: false)
@@ -741,12 +719,83 @@ extension OnboardingFlowView {
                 parentSecretInput = ""
                 parentSecretVisible = false
                 errorMessage = nil
+
+                // Move to recovery step and start async recovery
+                isRecovering = true
+                recoveryFailed = false
+                recoveryStatusMessage = "Connecting to relays and looking for your children..."
+                recoveredChildCount = nil
+                step = .recovering
+
                 Task {
-                    await environment.syncCoordinator.refreshSubscriptions()
+                    await performRecovery()
                 }
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+
+        private func performRecovery() async {
+            await MainActor.run {
+                recoveryStatusMessage = "Connecting to relays..."
+            }
+
+            // Ensure relay connection before attempting recovery
+            guard await ensureRelayConnection() else {
+                await MainActor.run {
+                    recoveryFailed = true
+                    isRecovering = false
+                    recoveryStatusMessage = "Could not connect to relays. Check your internet connection and try again."
+                }
+                logger.warning("No relay connection for child key recovery")
+                return
+            }
+
+            await MainActor.run {
+                recoveryStatusMessage = "Searching for your children..."
+            }
+
+            // Recover child keys from NIP-44 encrypted backup (kind 30078)
+            let recoveredCount = await environment.childKeyBackupService.recoverChildKeys()
+
+            await MainActor.run {
+                refreshChildEntries()
+            }
+
+            if let count = recoveredCount, count > 0 {
+                logger.info("Recovered \(count) child(ren) from backup")
+                await MainActor.run {
+                    recoveredChildCount = count
+                    recoveryStatusMessage = "Successfully restored your account with \(count) child \(count == 1 ? "profile" : "profiles")."
+                    isRecovering = false
+                }
+            } else {
+                await MainActor.run {
+                    recoveredChildCount = 0
+                    recoveryStatusMessage = "Your account has been restored. No existing children were found—you can add new child profiles."
+                    isRecovering = false
+                }
+            }
+
+            // Refresh subscriptions to fetch child kind 0 metadata
+            await environment.syncCoordinator.refreshSubscriptions()
+        }
+
+        func finishRecovery() {
+            refreshChildEntries()
+
+            if !childEntries.isEmpty {
+                // Children were recovered, finish setup
+                if let first = childEntries.first {
+                    environment.switchProfile(first.profile)
+                }
+                environment.completeOnboarding()
+                step = .ready
+            } else {
+                // No children recovered, go to child setup
+                step = .parentChildSetup
+            }
+            errorMessage = nil
         }
 
         func advanceToChildSetup() {
@@ -783,7 +832,7 @@ extension OnboardingFlowView {
                 errorMessage = message
                 return message
             }
-            guard let parentIdentity = parentIdentity else {
+            guard parentIdentity != nil else {
                 let message = "Generate or import the parent key first."
                 errorMessage = message
                 return message
@@ -800,7 +849,7 @@ extension OnboardingFlowView {
                         avatarAsset: theme.defaultAvatarAsset
                     )
                     let wasEmpty = childEntries.isEmpty
-                    upsertChildEntry(created, delegation: nil)
+                    upsertChildEntry(created)
                     if wasEmpty {
                         environment.switchProfile(created.profile)
                     }
@@ -818,31 +867,34 @@ extension OnboardingFlowView {
             childSecretVisibility.insert(identity.profile.id)
             lastCreatedChildID = identity.profile.id
 
+            // Publish child metadata to Nostr (best-effort, don't fail child creation if publish fails)
             do {
                 _ = try await environment.childProfilePublisher.publishProfile(
                     for: identity.profile,
                     identity: identity,
                     nameOverride: trimmed
                 )
-                // Don't create group yet - MLS requires at least 2 members
-                // Group will be created when first follow is established
-                refreshChildEntries()
-                errorMessage = nil
-                Task {
-                    await environment.syncCoordinator.refreshSubscriptions()
-                }
-                return nil
             } catch {
-                let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                errorMessage = description
-                return description
+                // Log the error but don't fail child creation
+                logger.warning("Failed to publish child metadata: \(error.localizedDescription, privacy: .public)")
             }
-        }
 
-        func importChildForParent(name: String, secret: String, theme: ThemeDescriptor) {
-            // Child import removed - children don't have separate keys
-            // This method is now deprecated and should not be called
-            errorMessage = "Child key import is no longer supported. Children are profiles owned by parents."
+            // Publish child key backup so recovery works on other devices
+            do {
+                try await environment.childKeyBackupService.publishBackup()
+                logger.info("Child key backup published after creating child")
+            } catch {
+                logger.warning("Failed to publish child key backup: \(error.localizedDescription, privacy: .public)")
+            }
+
+            // Don't create group yet - MLS requires at least 2 members
+            // Group will be created when first follow is established
+            refreshChildEntries()
+            errorMessage = nil
+            Task {
+                await environment.syncCoordinator.refreshSubscriptions()
+            }
+            return nil
         }
 
         func finishParentFlow() {
@@ -866,38 +918,6 @@ extension OnboardingFlowView {
             environment.completeOnboarding()
             step = .ready
             errorMessage = nil
-        }
-
-        func importChildDevice() {
-            let trimmedName = childImportName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let trimmedSecret = childImportSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            guard !trimmedName.isEmpty else {
-                errorMessage = "Enter the child's name."
-                return
-            }
-            guard !trimmedSecret.isEmpty else {
-                errorMessage = "Paste or scan the child nsec to continue."
-                return
-            }
-
-            do {
-                let identity = try environment.identityManager.importChildIdentity(
-                    trimmedSecret,
-                    profileName: trimmedName,
-                    theme: childImportTheme,
-                    avatarAsset: childImportTheme.defaultAvatarAsset
-                )
-                environment.switchProfile(identity.profile)
-                environment.completeOnboarding()
-                step = .ready
-                errorMessage = nil
-                Task {
-                    await environment.syncCoordinator.refreshSubscriptions()
-                }
-            } catch {
-                errorMessage = error.localizedDescription
-            }
         }
 
         func copyToPasteboard(_ value: String) {
@@ -949,9 +969,8 @@ extension OnboardingFlowView {
                 }
                 return nil
             } catch {
-                let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                errorMessage = description
-                return description
+                errorMessage = error.displayMessage
+                return error.displayMessage
             }
         }
 
@@ -959,8 +978,7 @@ extension OnboardingFlowView {
             do {
                 let identities = try environment.identityManager.allChildIdentities()
                 childEntries = identities.map { identity in
-                    let delegation = delegationCache[identity.profile.id]
-                    return ChildEntry(identity: identity, delegation: delegation)
+                    ChildEntry(identity: identity)
                 }
                 childEntries.sort { lhs, rhs in
                     lhs.profile.name.localizedCaseInsensitiveCompare(rhs.profile.name) == .orderedAscending
@@ -972,8 +990,8 @@ extension OnboardingFlowView {
             }
         }
 
-        private func upsertChildEntry(_ identity: ChildIdentity, delegation: ChildDelegation?) {
-            let entry = ChildEntry(identity: identity, delegation: delegation)
+        private func upsertChildEntry(_ identity: ChildIdentity) {
+            let entry = ChildEntry(identity: identity)
             if let index = childEntries.firstIndex(where: { $0.id == entry.id }) {
                 childEntries[index] = entry
             } else {
@@ -1047,22 +1065,17 @@ extension OnboardingFlowView {
 
         struct ChildEntry: Identifiable {
             let identity: ChildIdentity
-            let delegation: ChildDelegation?  // Deprecated, kept for compatibility
 
             var id: UUID { identity.profile.id }
             var profile: ProfileModel { identity.profile }
-            
+
             // Child keys removed - these return profile IDs now
             var publicKey: String {
                 identity.publicKeyHex
             }
-            
+
             var secretKey: String? {
                 nil  // Children don't have secret keys anymore
-            }
-            
-            var delegationTagDisplay: String? {
-                nil  // Delegations are deprecated
             }
         }
     }
@@ -1167,7 +1180,7 @@ private struct IntroSlide {
         ),
         IntroSlide(
             title: "Stay In Control",
-            subtitle: "Approve Marmot invites, manage profiles, and share safely from the Parent Zone whenever you need.",
+            subtitle: "Approve connection invites, manage profiles, and share safely from the Parent Zone whenever you need.",
             iconName: "shield.lefthalf.fill",
             accent: Color(red: 0.46, green: 0.94, blue: 0.87),
             gradient: [
@@ -1177,7 +1190,7 @@ private struct IntroSlide {
         ),
         IntroSlide(
             title: "Private By Design",
-            subtitle: "Link trusted families with secure Marmot invites that pair parent and child keys automatically.",
+            subtitle: "Link trusted families with secure connection invites that pair parent and child keys automatically.",
             iconName: "qrcode.viewfinder",
             accent: Color(red: 0.78, green: 0.86, blue: 1.0),
             gradient: [
@@ -1193,7 +1206,6 @@ private struct ChildIdentityCard: View {
     let isSecretVisible: Bool
     let toggleSecret: () -> Void
     let copySecret: () -> Void
-    let copyDelegation: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1201,50 +1213,23 @@ private struct ChildIdentityCard: View {
                 .font(.headline)
 
             IdentityCard(
-                title: "npub",
+                title: "Profile ID",
                 value: entry.publicKey,
-                subtitle: "Share with trusted families joining your Marmot group."
+                subtitle: "Share with trusted families you're connecting with."
             )
 
             if let secret = entry.secretKey {
                 SecureValueCard(
-                    title: "nsec",
+                    title: "Private Key",
                     value: secret,
                     isRevealed: isSecretVisible,
                     toggle: toggleSecret,
                     copyAction: copySecret
                 )
             }
-
-            if let delegation = entry.delegationTagDisplay {
-                DelegationCard(
-                    value: delegation,
-                    copyAction: copyDelegation
-                )
-            }
         }
         .padding()
         .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemBackground)))
-    }
-}
-
-private struct DelegationCard: View {
-    let value: String
-    let copyAction: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Delegation Tag")
-                .font(.headline)
-            Text(value)
-                .font(.system(.footnote).monospaced())
-                .textSelection(.enabled)
-            Button("Copy delegation") {
-                copyAction()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
     }
 }
 
@@ -1368,47 +1353,6 @@ private struct ChildProfileSheet: View {
     }
 }
 
-private struct ChildImportSheet: View {
-    @Binding var name: String
-    @Binding var secret: String
-    @Binding var theme: ThemeDescriptor
-    let onScan: () -> Void
-    let onCancel: () -> Void
-    let onImport: () -> Void
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Profile") {
-                    TextField("Name", text: $name)
-                    Picker("Theme", selection: $theme) {
-                        ForEach(ThemeDescriptor.allCases, id: \.self) { theme in
-                            Text(theme.displayName).tag(theme)
-                        }
-                    }
-                }
-
-                Section("Child nsec") {
-                    TextField("nsec1...", text: $secret)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Button("Scan QR", action: onScan)
-                }
-            }
-            .navigationTitle("Import Child Key")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Import", action: onImport)
-                        .disabled(secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .presentationDetents([.medium])
-    }
-}
 
 private struct QRScannerSheet: View {
     let title: String
@@ -1448,25 +1392,17 @@ private struct QRScannerSheet: View {
 
 private enum QRIntent: Identifiable {
     case parentSecret
-    case parentChildImport
-    case childDeviceImport
 
     var id: String {
         switch self {
         case .parentSecret: return "parentSecret"
-        case .parentChildImport: return "parentChildImport"
-        case .childDeviceImport: return "childDeviceImport"
         }
     }
 
     var title: String {
         switch self {
         case .parentSecret:
-            return "Scan Parent nsec"
-        case .parentChildImport:
-            return "Scan Child nsec"
-        case .childDeviceImport:
-            return "Scan Child nsec"
+            return "Scan Private Key"
         }
     }
 }
@@ -1540,7 +1476,7 @@ private struct SecureValueCard: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
 
-            Text("Store this nsec offline. Anyone with access can control the family account.")
+            Text("Store this private key offline. Anyone with access can control the family account.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

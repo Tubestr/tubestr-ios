@@ -598,19 +598,19 @@ extension MarmotTransport.TransportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidEventJson:
-            return "The Marmot event JSON was invalid."
+            return "The connection event JSON was invalid."
         case .noRelaysConfigured:
-            return "No relays are configured for Marmot publishing."
+            return "No relays are configured for publishing."
         case .relaysUnavailable:
             return "Unable to publish because none of the configured relays are connected."
         case .missingKeyPackageReference:
-            return "A Marmot welcome was missing its key package reference."
+            return "A welcome was missing its key package reference."
         case .welcomeRecipientNotFound:
-            return "Unable to determine the recipient for a Marmot welcome."
+            return "Unable to determine the recipient for a welcome."
         case .signingKeyUnavailable:
-            return "No matching signing key was available for the Marmot welcome."
+            return "No matching signing key was available for the welcome."
         case .rumorEncodingFailed:
-            return "The Marmot welcome rumor could not be encoded for gift wrapping."
+            return "The welcome could not be encoded for gift wrapping."
         }
     }
 }

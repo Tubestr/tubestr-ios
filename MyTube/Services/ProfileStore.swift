@@ -27,8 +27,12 @@ final class ProfileStore: ObservableObject {
     }
 
     func createProfile(name: String, theme: ThemeDescriptor, avatarAsset: String) throws -> ProfileModel {
+        try createProfileWithId(id: UUID(), name: name, theme: theme, avatarAsset: avatarAsset)
+    }
+
+    func createProfileWithId(id: UUID, name: String, theme: ThemeDescriptor, avatarAsset: String) throws -> ProfileModel {
         let entity = ProfileEntity(context: persistence.viewContext)
-        entity.id = UUID()
+        entity.id = id
         entity.name = name
         entity.theme = theme.rawValue
         entity.avatarAsset = avatarAsset

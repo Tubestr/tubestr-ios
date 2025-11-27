@@ -189,7 +189,6 @@ struct ParentZoneView: View {
                 onImport: {
                     viewModel.importChildProfile(
                         name: importChildName,
-                        secret: importChildSecret,
                         theme: importChildTheme
                     )
                     resetChildImportState()
@@ -197,195 +196,7 @@ struct ParentZoneView: View {
             )
         }
         .sheet(isPresented: $isRequestingFollow) {
-            NavigationStack {
-                Form {
-                    Section("Pick a Child") {
-                        Picker("Local child", selection: $followChildSelection) {
-                            ForEach(viewModel.childIdentities) { child in
-                                Text(child.displayName)
-                                    .tag(Optional(child.id))
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .disabled(followIsSubmitting)
-                        .onAppear {
-                            if followChildSelection == nil {
-                                followChildSelection = viewModel.childIdentities.first?.id
-                            }
-                        }
-                    }
-
-                    Section("Connect using an invite") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Paste the Marmot invite link from the other parent. We auto-fill both keys and keep their Marmot key package so approval works in one step.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            TextField("Paste Marmot invite link or payload", text: $followInviteInput, axis: .vertical)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .font(.system(.footnote).monospaced())
-                                .lineLimit(2...4)
-                                .disabled(followIsSubmitting)
-
-                            HStack(spacing: 10) {
-                                Button {
-                                    pasteFollowInviteFromClipboard()
-                                } label: {
-                                    Label("Paste", systemImage: "doc.on.clipboard")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(followIsSubmitting)
-                            }
-
-                            if !followTargetChildKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                               !followTargetParentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Label(
-                                    "Ready to connect \(shortKey(followTargetParentKey)) ↔︎ \(shortKey(followTargetChildKey))",
-                                    systemImage: "checkmark.circle.fill"
-                                )
-                                .foregroundStyle(.green)
-                                .font(.footnote)
-                            }
-                        }
-                    }
-
-                    if !followParentOptions.isEmpty {
-                        Section("Families you've approved") {
-                            Picker("Linked parent", selection: Binding(
-                                get: { followSelectedParentKey },
-                                set: { newValue in
-                                    followSelectedParentKey = newValue
-                                    if let newValue {
-                                        followTargetParentKey = newValue
-                                    }
-                                }
-                            )) {
-                                Text("Custom…").tag(String?.none)
-                                ForEach(followParentOptions, id: \.self) { key in
-                                    Text(shortKey(key))
-                                        .tag(Optional(key))
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .disabled(followIsSubmitting)
-                            Text("Approved parents appear after a Marmot invite is accepted, so you can autofill the other family's key.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Section {
-                            Text("Approve a Marmot invite to remember trusted families for quick reuse.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if followIsSubmitting {
-                        Section {
-                            ProgressView("Sending…")
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
-                    }
-
-                    // Show key package fetch status
-                    switch viewModel.keyPackageFetchState {
-                    case .fetching(let parentKey):
-                        Section {
-                            HStack {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Fetching keys for \(parentKey.prefix(12))…")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    case .fetched(_, let count):
-                        Section {
-                            Label("Ready to connect (\(count) key\(count == 1 ? "" : "s") found)", systemImage: "checkmark.circle.fill")
-                                .font(.footnote)
-                                .foregroundStyle(.green)
-                        }
-                    case .failed(_, let error):
-                        Section {
-                            Text(error)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .multilineTextAlignment(.leading)
-                        }
-                    case .idle:
-                        EmptyView()
-                    }
-
-                    if let followFormError {
-                        Section {
-                            Text(followFormError)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .multilineTextAlignment(.leading)
-                        }
-                    }
-                }
-                .navigationTitle("Marmot Invite")
-                .onChange(of: followInviteInput) { _ in
-                    parseFollowInviteInput()
-                }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            dismissFollowRequest()
-                        }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button {
-                            guard let childId = followChildSelection else {
-                                followFormError = "Select which child is sending the invite."
-                                return
-                            }
-                            parseFollowInviteInput()
-                            guard
-                                !followTargetChildKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                                !followTargetParentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            else {
-                                followFormError = "Paste or scan the Marmot invite so we can include both keys."
-                                return
-                            }
-                            followFormError = nil
-                            followIsSubmitting = true
-                            Task {
-                                let error = await viewModel.submitFollowRequest(
-                                    childId: childId,
-                                    targetChildKey: followTargetChildKey,
-                                    targetParentKey: followTargetParentKey
-                                )
-                                followIsSubmitting = false
-                                if let error {
-                                    followFormError = error
-                                } else {
-                                    dismissFollowRequest()
-                                }
-                            }
-                        } label: {
-                            if case .fetching = viewModel.keyPackageFetchState {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .controlSize(.small)
-                            } else {
-                                Text("Connect")
-                            }
-                        }
-                        .disabled(
-                            followIsSubmitting
-                                || isKeyPackageFetching
-                                || followChildSelection == nil
-                                || followTargetChildKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                || followTargetParentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        )
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
+            followRequestSheetContent
         }
         .alert("Reset Tubestr?", isPresented: $showingResetAlert) {
             Button("Cancel", role: .cancel) {}
@@ -406,7 +217,7 @@ struct ParentZoneView: View {
                             .autocorrectionDisabled()
                             .font(.system(.footnote).monospaced())
                             .disabled(shareIsSending)
-                        Text("The other parent must accept your Marmot invite before their kids can watch new shares.")
+                        Text("The other parent must accept your connection invite before their kids can watch new shares.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.top, 4)
@@ -431,13 +242,13 @@ struct ParentZoneView: View {
                             }
                             .pickerStyle(.menu)
                             .disabled(shareIsSending)
-                            Text("Approved parents appear here after a Marmot invite is accepted, so you can autofill the other family's key.")
+                            Text("Approved parents appear here after a connection invite is accepted, so you can autofill the other family's key.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     } else {
                         Section {
-                            Text("No approved families yet. Approve a Marmot invite so you know who you're sharing with.")
+                            Text("No approved families yet. Approve a connection invite so you know who you're sharing with.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -506,6 +317,198 @@ struct ParentZoneView: View {
                 }
             }
         }
+    }
+
+    private var followRequestSheetContent: some View {
+        NavigationStack {
+            Form {
+                Section("Pick a Child") {
+                    Picker("Local child", selection: $followChildSelection) {
+                        ForEach(viewModel.childIdentities) { child in
+                            Text(child.displayName)
+                                .tag(Optional(child.id))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .disabled(followIsSubmitting)
+                    .onAppear {
+                        if followChildSelection == nil {
+                            followChildSelection = viewModel.childIdentities.first?.id
+                        }
+                    }
+                }
+
+                Section("Connect using an invite") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Paste the connection invite link from the other parent. We auto-fill both keys and keep their key package so approval works in one step.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        TextField("Paste invite link or code", text: $followInviteInput, axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(.footnote).monospaced())
+                            .lineLimit(2...4)
+                            .disabled(followIsSubmitting)
+
+                        HStack(spacing: 10) {
+                            Button {
+                                pasteFollowInviteFromClipboard()
+                            } label: {
+                                Label("Paste", systemImage: "doc.on.clipboard")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(followIsSubmitting)
+                        }
+
+                        if !followTargetChildKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                           !followTargetParentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Label(
+                                "Ready to connect \(shortKey(followTargetParentKey)) ↔︎ \(shortKey(followTargetChildKey))",
+                                systemImage: "checkmark.circle.fill"
+                            )
+                            .foregroundStyle(.green)
+                            .font(.footnote)
+                        }
+                    }
+                }
+
+                if !followParentOptions.isEmpty {
+                    Section("Families you've approved") {
+                        Picker("Linked parent", selection: Binding(
+                            get: { followSelectedParentKey },
+                            set: { newValue in
+                                followSelectedParentKey = newValue
+                                if let newValue {
+                                    followTargetParentKey = newValue
+                                }
+                            }
+                        )) {
+                            Text("Custom…").tag(String?.none)
+                            ForEach(followParentOptions, id: \.self) { key in
+                                Text(shortKey(key))
+                                    .tag(Optional(key))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(followIsSubmitting)
+                        Text("Approved parents appear after a connection invite is accepted, so you can autofill the other family's key.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Section {
+                        Text("Approve a connection invite to remember trusted families for quick reuse.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if followIsSubmitting {
+                    Section {
+                        ProgressView("Sending…")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                }
+
+                // Show key package fetch status
+                switch viewModel.keyPackageFetchState {
+                case .fetching(let parentKey):
+                    Section {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Fetching keys for \(parentKey.prefix(12))…")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                case .fetched(_, let count):
+                    Section {
+                        Label("Ready to connect (\(count) key\(count == 1 ? "" : "s") found)", systemImage: "checkmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.green)
+                    }
+                case .failed(_, let error):
+                    Section {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.leading)
+                    }
+                case .idle:
+                    EmptyView()
+                }
+
+                if let followFormError {
+                    Section {
+                        Text(followFormError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+            }
+            .navigationTitle("Connection Invite")
+            .onChange(of: followInviteInput) { _ in
+                parseFollowInviteInput()
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismissFollowRequest()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        guard let childId = followChildSelection else {
+                            followFormError = "Select which child is sending the invite."
+                            return
+                        }
+                        parseFollowInviteInput()
+                        guard
+                            !followTargetChildKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                            !followTargetParentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        else {
+                            followFormError = "Paste or scan the invite so we can include both keys."
+                            return
+                        }
+                        followFormError = nil
+                        followIsSubmitting = true
+                        Task {
+                            let error = await viewModel.submitFollowRequest(
+                                childId: childId,
+                                targetChildKey: followTargetChildKey,
+                                targetParentKey: followTargetParentKey
+                            )
+                            followIsSubmitting = false
+                            if let error {
+                                followFormError = error
+                            } else {
+                                dismissFollowRequest()
+                            }
+                        }
+                    } label: {
+                        if case .fetching = viewModel.keyPackageFetchState {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .controlSize(.small)
+                        } else {
+                            Text("Connect")
+                        }
+                    }
+                    .disabled(
+                        followIsSubmitting
+                            || isKeyPackageFetching
+                            || followChildSelection == nil
+                            || followTargetChildKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || followTargetParentKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     private var unlockedView: some View {
@@ -675,10 +678,10 @@ private extension ParentZoneView {
                     .foregroundStyle(activeCount > 0 ? Color.accentColor : Color.secondary)
 
                 if groupCount > 0 {
-                    Label("\(groupCount) Marmot \(groupCount == 1 ? "group" : "groups") ready", systemImage: "person.3.sequence")
+                    Label("\(groupCount) family connection\(groupCount == 1 ? "" : "s") ready", systemImage: "person.3.sequence")
                         .foregroundStyle(Color.primary)
                 } else {
-                    Label("No Marmot groups yet", systemImage: "person.3.sequence.fill")
+                    Label("No family connections yet", systemImage: "person.3.sequence.fill")
                         .foregroundStyle(Color.secondary)
                 }
 
@@ -688,7 +691,7 @@ private extension ParentZoneView {
                 }
 
                 if pendingWelcomes > 0 {
-                    Label("\(pendingWelcomes) pending Marmot invite\(pendingWelcomes == 1 ? "" : "s")", systemImage: "envelope.open")
+                    Label("\(pendingWelcomes) pending connection invite\(pendingWelcomes == 1 ? "" : "s")", systemImage: "envelope.open")
                         .foregroundStyle(Color.orange)
                 }
 
@@ -714,14 +717,14 @@ private extension ParentZoneView {
                 Button {
                     prepareFollowRequest()
                 } label: {
-                    Label("New Marmot Invite", systemImage: "person.crop.circle.badge.plus")
+                    Label("New Connection Invite", systemImage: "person.crop.circle.badge.plus")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .disabled(viewModel.childIdentities.isEmpty)
 
                 if viewModel.childIdentities.isEmpty {
-                    Text("Add a child profile before sending Marmot invites.")
+                    Text("Add a child profile before sending connection invites.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -784,7 +787,7 @@ private extension ParentZoneView {
                         }
                         .buttonStyle(KidPrimaryButtonStyle())
 
-                        Text("Your parent key manages child profiles, storage, and Marmot invites.")
+                        Text("Your parent key manages child profiles, storage, and connection invites.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -815,37 +818,37 @@ private extension ParentZoneView {
         }
         
         return insetGroupedList {
-            Section("Marmot Invites & Approvals") {
+            Section("Connection Invites & Approvals") {
                 Button {
                     prepareFollowRequest()
                 } label: {
-                    Label("New Marmot Invite", systemImage: "person.crop.circle.badge.plus")
+                    Label("New Connection Invite", systemImage: "person.crop.circle.badge.plus")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(KidPrimaryButtonStyle())
                 .disabled(viewModel.childIdentities.isEmpty)
 
                 if viewModel.childIdentities.isEmpty {
-                    Text("Add a child profile before sending Marmot invites.")
+                    Text("Add a child profile before sending connection invites.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 4)
                 }
             }
 
-            Section("Active Marmot Groups") {
+            Section("Active Connections") {
                 Button {
                     viewModel.refreshConnections()
                     viewModel.refreshMarmotDiagnostics()
                 } label: {
-                    Label("Refresh Groups", systemImage: "arrow.clockwise")
+                    Label("Refresh Connections", systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
 
                 if childrenWithGroups.isEmpty {
-                    Text("No active Marmot groups yet. Create a group by sending an invite to another family.")
+                    Text("No active connections yet. Create one by sending an invite to another family.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 4)
@@ -865,7 +868,7 @@ private extension ParentZoneView {
                         }
                         .font(.caption)
                     } else {
-                        Text("No pending Marmot welcomes.")
+                        Text("No pending connection welcomes.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1096,7 +1099,7 @@ private extension ParentZoneView {
             Section("Outbound Reports") {
                 let outbound = viewModel.outboundReports()
                 if outbound.isEmpty {
-                    Text("You haven't reported any shared videos yet. Incoming shares travel over Marmot groups.")
+                    Text("You haven't reported any shared videos yet. Incoming shares travel over your family connections.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else {
@@ -1169,7 +1172,7 @@ private extension ParentZoneView {
                 }
             }
 
-            Section("Marmot Diagnostics") {
+            Section("Connection Diagnostics") {
                 LabeledContent {
                     Text("\(viewModel.marmotDiagnostics.groupCount)")
                         .font(.headline)
@@ -1295,7 +1298,7 @@ private extension ParentZoneView {
     }
 
     @ViewBuilder
-    private func storageEntitlementSummary(_ entitlement: ParentZoneViewModel.CloudEntitlement) -> some View {
+    private func storageEntitlementSummary(_ entitlement: CloudEntitlement) -> some View {
         let formatter = RelativeDateTimeFormatter()
         VStack(alignment: .leading, spacing: 4) {
             Label("\(entitlement.plan) • \(entitlement.statusLabel)", systemImage: entitlement.isActive ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
@@ -1453,6 +1456,16 @@ private extension ParentZoneView {
                     }
                     .controlSize(.small)
                 }
+
+                KeyExportCard(
+                    title: "Parent Private Key",
+                    value: secret,
+                    isRevealed: viewModel.parentSecretVisible,
+                    footnote: "Import this on a new device to restore the family. Child profiles are recovered automatically from your backup.",
+                    onToggle: { viewModel.toggleParentSecretVisibility() },
+                    onCopy: { copyToPasteboard(secret) },
+                    onShare: { presentShare([secret]) }
+                )
             }
 
             VStack(alignment: .leading, spacing: 12) {
@@ -1534,14 +1547,14 @@ private extension ParentZoneView {
             if let summary = viewModel.groupSummary(for: child) {
                 groupSummaryCard(summary: summary)
             } else {
-                Text("Generate \(child.displayName)'s secure Marmot group to share invites.")
+                Text("Generate \(child.displayName)'s secure sharing group to send invites.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
             if let followInvite = viewModel.followInvite(for: child) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("\(child.displayName) Marmot Invite")
+                    Text("\(child.displayName) Connection Invite")
                         .font(.headline)
                     Text("Share this invite with other parents to connect.")
                         .font(.caption)
@@ -1647,19 +1660,23 @@ private extension ParentZoneView {
                     .disabled(viewModel.isPublishingChild(child.id) || child.identity == nil)
                 }
 
-                HStack {
-                    if child.identity != nil {
-                        Button("Reissue Delegation") {
-                            viewModel.reissueDelegation(for: child.id)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    Button("Set Active") {
-                        environment.switchProfile(child.profile)
-                    }
-                    .buttonStyle(.bordered)
+                if let identity = child.identity {
+                    let secret = identity.secretKeyBech32 ?? identity.keyPair.exportSecretKeyHex()
+                    KeyExportCard(
+                        title: "\(child.displayName) Private Key",
+                        value: secret,
+                        isRevealed: viewModel.isChildSecretVisible(child.id),
+                        footnote: "Prefer importing the parent private key to restore all children automatically.",
+                        onToggle: { viewModel.toggleChildSecretVisibility(child.id) },
+                        onCopy: { copyToPasteboard(secret) },
+                        onShare: { presentShare([secret]) }
+                    )
                 }
+
+                Button("Set Active") {
+                    environment.switchProfile(child.profile)
+                }
+                .buttonStyle(.bordered)
                 .controlSize(.small)
             }
 
@@ -2078,13 +2095,13 @@ private struct ChildImportFormSheet: View {
                     }
                 }
 
-                Section("Child nsec") {
-                    TextField("nsec1...", text: $secret)
+                Section("Child Private Key") {
+                    TextField("nsec1... or hex", text: $secret)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
             }
-            .navigationTitle("Import Child Key")
+            .navigationTitle("Import Child Profile")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
@@ -2172,8 +2189,55 @@ private struct PinSecureField: View {
     }
 }
 
+private struct KeyExportCard: View {
+    let title: String
+    let value: String
+    let isRevealed: Bool
+    let footnote: String
+    let onToggle: () -> Void
+    let onCopy: () -> Void
+    let onShare: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+
+            Group {
+                if isRevealed {
+                    Text(value)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                } else {
+                    Text("••••••••••••••")
+                        .font(.system(.title2).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 12) {
+                Button(isRevealed ? "Hide" : "Reveal", action: onToggle)
+                Button("Copy", action: onCopy)
+                Button("Share", action: onShare)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Text(footnote)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
+        )
+    }
+}
+
 private struct StorageMeterView: View {
-    let usage: ParentZoneViewModel.StorageUsage
+    let usage: StorageUsage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2209,7 +2273,7 @@ private struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-private extension ParentZoneViewModel.StorageUsage {
+private extension StorageUsage {
     var totalDouble: Double {
         let capacity = 5.0 * 1024 * 1024 * 1024 // 5 GB notional capacity
         guard capacity > 0 else { return 0 }

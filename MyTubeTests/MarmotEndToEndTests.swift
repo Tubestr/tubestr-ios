@@ -96,18 +96,21 @@ final class MarmotEndToEndTests: XCTestCase {
         print("   Waiting 2s for relay propagation...")
         try await Task.sleep(nanoseconds: 2_000_000_000)
 
-        print("💌 Creating follow invite (v3 - no embedded key packages)...")
+        print("💌 Creating follow invite (v4 - with all children's keys)...")
         print("   Family A parent (hex): \(parentIdentity.publicKeyHex.prefix(16))...")
         if let bech32 = parentIdentity.publicKeyBech32 {
             print("   Family A parent (bech32): \(bech32.prefix(16))...")
         }
+        // Phase 3: Include all children's public keys in invite
+        let allChildKeys = vmA.childIdentities.compactMap { $0.publicKey }
         let invite = ParentZoneViewModel.FollowInvite(
-            version: 3,
+            version: 4,
             childName: childA.profile.name,
             childPublicKey: childPublicKey,
-            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex
+            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex,
+            childPublicKeys: allChildKeys.isEmpty ? nil : allChildKeys
         )
-        print("✅ Invite created")
+        print("✅ Invite created with \(allChildKeys.count) child key(s)")
         print("   Invite parent key: \(invite.parentPublicKey.prefix(16))...")
 
         print("📥 Family B: Fetching key packages from relay...")
@@ -205,8 +208,9 @@ final class MarmotEndToEndTests: XCTestCase {
             let membersB = try await familyB.environment.mdkActor.getMembers(inGroup: groupId)
             print("   Family A sees \(membersA.count) members in group")
             print("   Family B sees \(membersB.count) members in group")
-            XCTAssertEqual(membersA.count, 2, "Should have 2 members")
-            XCTAssertEqual(membersB.count, 2, "Should have 2 members")
+            // Phase 3: Groups now include children as members, so expect >= 2 (at least both parents)
+            XCTAssertGreaterThanOrEqual(membersA.count, 2, "Should have at least both parents as members")
+            XCTAssertGreaterThanOrEqual(membersB.count, 2, "Should have at least both parents as members")
         }
         print("✅ Both families in active group")
         

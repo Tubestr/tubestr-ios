@@ -162,13 +162,11 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
 
     private func updateSharedVideos() {
         guard let entities = remoteFetchedResultsController?.fetchedObjects else {
-            print("📺 updateSharedVideos: No remoteFetchedResultsController or no fetched objects")
             sharedSections = []
             remoteShareSummary = .empty
             return
         }
 
-        print("📺 updateSharedVideos: Found \(entities.count) remote video entities")
         
         // Build display context asynchronously
         Task { [weak self] in
@@ -180,7 +178,6 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
                     guard let model = RemoteVideoModel(entity: entity) else { return nil }
                     return self.makeSharedVideo(from: model, context: displayContext)
                 }
-                print("   Converted to \(items.count) SharedRemoteVideo items")
                 
                 self.processSharedVideoItems(items)
             }
@@ -233,9 +230,7 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
             return lhsDate > rhsDate
         }
 
-        print("   Created \(sections.count) section(s)")
         for section in sections {
-            print("      Section: \(section.title) - \(section.videos.count) videos")
         }
         
         sharedSections = sections
@@ -245,14 +240,11 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
             lastSharedAt: latestShareDate
         )
         
-        print("   📊 Summary: \(availableCount) available, \(downloadedCount) downloaded")
 
         if sections.isEmpty {
-            print("   ⚠️ No sections to display")
             presentedRemoteVideo = nil
             return
         }
-        print("   ✅ Shared sections updated!")
 
 
         if let presented = presentedRemoteVideo {
@@ -359,7 +351,7 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
         if let stored = model.mlsGroupId, !stored.isEmpty {
             return stored
         }
-        if let senderKey = canonicalParentKey(metadata?.by),
+        if let senderKey = GroupNameFormatter.canonicalParentKey(metadata?.by),
            let groupId = context.memberToGroup[senderKey] {
             return groupId
         }
@@ -389,12 +381,12 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
             return childName
         }
 
-        if let senderKey = canonicalParentKey(metadata?.by),
+        if let senderKey = GroupNameFormatter.canonicalParentKey(metadata?.by),
            senderKey == context.localParentKey {
             return "My Videos"
         }
 
-        if let senderKey = canonicalParentKey(metadata?.by),
+        if let senderKey = GroupNameFormatter.canonicalParentKey(metadata?.by),
            let parentName = context.parentNames[senderKey] {
             return parentName
         }
@@ -445,11 +437,6 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
         return trimmed
     }
 
-    private func canonicalParentKey(_ value: String?) -> String? {
-        guard let value else { return nil }
-        return ParentIdentityKey(string: value)?.hex.lowercased()
-    }
-
     private func canonicalOwnerKey(for key: String) -> String? {
         guard let environment else { return nil }
         return environment.childProfileStore.canonicalKey(key)
@@ -477,7 +464,7 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
                         self.error = nil
                     }
                 } catch {
-                    let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    let description = error.displayMessage
                     await MainActor.run {
                         self?.error = description
                     }
@@ -498,24 +485,18 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
 
     func refresh() async {
         guard let environment else { return }
-        print("🔄 HomeFeed.refresh() called")
         error = nil
         
         // Refresh Marmot messages from MDK
-        print("   📬 Refreshing Marmot messages...")
         await environment.marmotProjectionStore.refreshAll()
         
         // Refresh Nostr subscriptions
-        print("   📡 Refreshing subscriptions...")
         await environment.syncCoordinator.refreshSubscriptions()
         
-        print("   🎬 Recomputing ranking...")
         recomputeRanking()
         
-        print("   📺 Updating shared videos...")
         updateSharedVideos()
         
-        print("✅ HomeFeed.refresh() completed")
     }
 
     func publishVideo(_ videoId: UUID, pin: String) async throws {

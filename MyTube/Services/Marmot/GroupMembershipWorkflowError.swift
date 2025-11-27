@@ -18,9 +18,9 @@ enum GroupMembershipWorkflowError: LocalizedError {
         case .parentIdentityMissing:
             return "Generate or import a parent key before creating groups."
         case .relaysUnavailable:
-            return "Configure at least one relay before creating Marmot groups."
+            return "Configure at least one relay before creating sharing groups."
         case .keyPackageMissing:
-            return "Scan an invite that includes Marmot key packages before sending this request."
+            return "Scan an invite that includes the connection's key packages before sending this request."
         case .groupIdentifierMissing:
             return "Set up the child's secure group before sending invites."
         }

@@ -126,24 +126,12 @@ actor ReportCoordinator {
         videoId: String,
         subjectChild: String
     ) -> [String] {
-        var candidateKeys: Set<String> = []
-        if let normalized = canonicalChildKey(subjectChild) {
-            candidateKeys.insert(normalized)
-        }
-
-        if candidateKeys.isEmpty,
-           let remote = try? remoteVideoStore.fetchVideo(videoId: videoId),
-           let normalized = canonicalChildKey(remote.ownerChild) {
-            candidateKeys.insert(normalized)
-        }
-
-        guard !candidateKeys.isEmpty else {
+        // Get the video's MLS group - reports go to the group the video came from
+        guard let video = try? remoteVideoStore.fetchVideo(videoId: videoId),
+              let groupId = video.mlsGroupId else {
             return []
         }
-
-        // Get groups from remote video store
-        // For now, return empty (reports will need to be sent to all groups)
-        return []
+        return [groupId]
     }
 
     private func applyRelationshipAction(
@@ -164,12 +152,5 @@ actor ReportCoordinator {
         // Actions would be applied via MDK removeMembers
         // For now, just log - reports filed but don't auto-change group membership
         logger.info("Relationship action \(action.rawValue) for \(subjectChild) - would remove from groups")
-    }
-
-    private func canonicalChildKey(_ value: String) -> String? {
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        return ParentIdentityKey(string: value)?.hex.lowercased()
     }
 }

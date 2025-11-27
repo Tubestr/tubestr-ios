@@ -33,66 +33,13 @@ struct ParentIdentity {
 
 struct ChildIdentity {
     let profile: ProfileModel
-    var delegation: ChildDelegation?  // Deprecated
-    
-    // Children no longer have separate Nostr keys - they are just profiles owned by parents
-    // All content is published under the parent's key with child metadata
-    
-    // Temporary compatibility: return profile ID as identifier
-    var publicKeyHex: String {
-        profile.id.uuidString.lowercased().replacingOccurrences(of: "-", with: "")
-    }
-    
-    var publicKeyBech32: String? {
-        nil  // Children don't have bech32 keys
-    }
-    
-    var secretKeyBech32: String? {
-        nil  // Children don't have secret keys
-    }
-    
-    // Stub keyPair for compatibility - DO NOT USE for signing
-    var keyPair: NostrKeyPair {
-        // Create a deterministic but fake key from profile ID
-        // This should NEVER be used for actual signing
-        let profileBytes = profile.id.uuid
-        let keyData = Data([
-            profileBytes.0, profileBytes.1, profileBytes.2, profileBytes.3,
-            profileBytes.4, profileBytes.5, profileBytes.6, profileBytes.7,
-            profileBytes.8, profileBytes.9, profileBytes.10, profileBytes.11,
-            profileBytes.12, profileBytes.13, profileBytes.14, profileBytes.15,
-            profileBytes.0, profileBytes.1, profileBytes.2, profileBytes.3,
-            profileBytes.4, profileBytes.5, profileBytes.6, profileBytes.7,
-            profileBytes.8, profileBytes.9, profileBytes.10, profileBytes.11,
-            profileBytes.12, profileBytes.13, profileBytes.14, profileBytes.15
-        ])
-        return try! NostrKeyPair(privateKeyData: keyData)
-    }
+    let keyPair: NostrKeyPair
+
+    var publicKeyHex: String { keyPair.publicKeyHex }
+    var publicKeyBech32: String? { keyPair.publicKeyBech32 }
+    var secretKeyBech32: String? { keyPair.secretKeyBech32 }
 }
 
-// Delegation logic removed - children don't have separate keys anymore
-// Stub types for compatibility
-struct DelegationConditions: Equatable, Sendable {
-    // Deprecated
-    static func defaultChild(now: Date = Date(), duration: TimeInterval = 60 * 60 * 24 * 365) -> DelegationConditions {
-        return DelegationConditions()
-    }
-    
-    func encode() -> String {
-        return ""  // Deprecated
-    }
-}
-
-struct ChildDelegation: Sendable {
-    // Deprecated - children don't have delegations anymore
-    var delegatorPublicKey: String { "" }
-    var delegateePublicKey: String { "" }
-    var conditions: DelegationConditions { DelegationConditions() }
-    var signature: String { "" }
-    var nostrTag: Tag {
-        NostrTagBuilder.make(name: "delegation", value: "", otherParameters: [])
-    }
-}
 
 /// Coordinates key generation, import, and export for parent/child identities.
 final class IdentityManager {
@@ -166,33 +113,39 @@ final class IdentityManager {
             theme: theme,
             avatarAsset: avatarAsset
         )
-        
-        return ChildIdentity(profile: profile)
+
+        // Generate random Nostr keypair for child
+        let secretKey = NostrSDK.SecretKey.generate()
+        let keyPair = try NostrKeyPair(secretKey: secretKey)
+        try keyStore.storeKeyPair(keyPair, role: .child(id: profile.id), requireBiometrics: false)
+
+        return ChildIdentity(profile: profile, keyPair: keyPair)
     }
 
     func childIdentity(for profile: ProfileModel) -> ChildIdentity? {
-        // Always return the identity since children are just profiles now
-        return ChildIdentity(profile: profile)
+        guard let keyPair = try? keyStore.fetchKeyPair(role: .child(id: profile.id)) else {
+            return nil
+        }
+        return ChildIdentity(profile: profile, keyPair: keyPair)
     }
 
     func allChildIdentities() throws -> [ChildIdentity] {
         let profiles = try profileStore.fetchProfiles()
-        return profiles.map { ChildIdentity(profile: $0) }
+        return profiles.compactMap { childIdentity(for: $0) }
     }
 
-    // Deprecated stub methods for compatibility
     func ensureChildIdentity(for profile: ProfileModel) throws -> ChildIdentity {
-        return ChildIdentity(profile: profile)
-    }
-    
-    func importChildIdentity(_ secret: String, profileName: String, theme: ThemeDescriptor, avatarAsset: String) throws -> ChildIdentity {
-        // Deprecated - just create a profile
-        return try createChildIdentity(name: profileName, theme: theme, avatarAsset: avatarAsset)
-    }
-    
-    func issueDelegation(to child: ChildIdentity, conditions: DelegationConditions) throws -> ChildDelegation {
-        // Deprecated - return empty delegation
-        return ChildDelegation()
+        // Return existing identity if keypair already exists
+        if let existing = childIdentity(for: profile) {
+            return existing
+        }
+
+        // Generate new keypair for this profile
+        let secretKey = NostrSDK.SecretKey.generate()
+        let keyPair = try NostrKeyPair(secretKey: secretKey)
+        try keyStore.storeKeyPair(keyPair, role: .child(id: profile.id), requireBiometrics: false)
+
+        return ChildIdentity(profile: profile, keyPair: keyPair)
     }
 
     private func decodePrivateKey(_ string: String) throws -> Data {

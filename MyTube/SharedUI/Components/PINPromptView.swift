@@ -110,7 +110,7 @@ struct PINPromptView: View {
             }
         } catch {
             await MainActor.run {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                errorMessage = error.displayMessage
                 isSubmitting = false
             }
         }

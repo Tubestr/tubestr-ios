@@ -12,10 +12,12 @@ import MDKBindings
 
 @MainActor
 final class OnboardingFlowViewModelTests: XCTestCase {
-    func testCreateChildUsesChildKeyPackageForGroupMembership() async throws {
+    /// Tests that child creation generates a child with their own Nostr keypair.
+    /// Note: Groups are NOT created during child creation - they're created later
+    /// during the follow workflow when connecting with another parent.
+    func testCreateChildGeneratesChildKeypair() async throws {
         let harness = try makeOnboardingTestEnvironment()
         let environment = harness.environment
-        let groupCoordinator = harness.groupMembershipCoordinator
         defer {
             try? environment.storageConfigurationStore.clearBYOConfig()
             try? environment.keyStore.removeAll()
@@ -32,23 +34,17 @@ final class OnboardingFlowViewModelTests: XCTestCase {
         let error = await viewModel.createChild(name: "Luna", theme: .ocean)
         XCTAssertNil(error)
 
-        guard let request = await groupCoordinator.recordedCreateRequest() else {
-            return XCTFail("Expected group creation request")
-        }
         guard let childEntry = viewModel.childEntries.first(where: { $0.profile.name == "Luna" }) else {
             return XCTFail("Expected child entry to exist")
         }
 
+        // Verify child has their own keypair (Phase 1 requirement)
         let childHex = childEntry.identity.publicKeyHex.lowercased()
         let parentHex = parentIdentity.publicKeyHex.lowercased()
 
-        XCTAssertEqual(request.creatorPublicKeyHex.lowercased(), parentHex)
-        XCTAssertEqual(request.memberKeyPackageEventsJson.count, 1)
-
-        let event = try NostrEvent.fromJson(json: request.memberKeyPackageEventsJson[0])
-        XCTAssertEqual(event.kind().asU16(), MarmotEventKind.keyPackage.rawValue)
-        XCTAssertEqual(event.pubkey.lowercased(), childHex)
-        XCTAssertNotEqual(event.pubkey.lowercased(), parentHex)
+        XCTAssertFalse(childHex.isEmpty, "Child should have a public key")
+        XCTAssertNotEqual(childHex, parentHex, "Child should have different key than parent")
+        XCTAssertNotNil(childEntry.identity.secretKeyBech32, "Child should have a secret key")
     }
 }
 
@@ -144,6 +140,7 @@ private func makeOnboardingTestEnvironment() throws -> OnboardingTestHarness {
         mdkActor: mdkActor,
         keyStore: keyStore,
         cryptoService: cryptoService,
+        profileStore: profileStore,
         parentProfileStore: parentProfileStore,
         childProfileStore: childProfileStore,
         likeStore: likeStore,
@@ -156,7 +153,6 @@ private func makeOnboardingTestEnvironment() throws -> OnboardingTestHarness {
     let likePublisher = LikePublisher(
         marmotShareService: marmotShareService,
         keyStore: keyStore,
-        childProfileStore: childProfileStore,
         remoteVideoStore: remoteVideoStore
     )
 
@@ -222,6 +218,14 @@ private func makeOnboardingTestEnvironment() throws -> OnboardingTestHarness {
         groupMembershipCoordinator: groupMembershipCoordinator
     )
 
+    let childKeyBackupService = ChildKeyBackupService(
+        identityManager: identityManager,
+        keyStore: keyStore,
+        profileStore: profileStore,
+        nostrClient: nostrClient,
+        relayDirectory: relayDirectory
+    )
+
     let activeProfile = try profileStore.createProfile(
         name: "Test Child",
         theme: .ocean,
@@ -268,6 +272,7 @@ private func makeOnboardingTestEnvironment() throws -> OnboardingTestHarness {
         groupMembershipCoordinator: groupMembershipCoordinator,
         reportStore: reportStore,
         reportCoordinator: reportCoordinator,
+        childKeyBackupService: childKeyBackupService,
         backendClient: backendClient,
         storageConfigurationStore: storageConfigurationStore,
         safetyConfigurationStore: safetyConfigurationStore,

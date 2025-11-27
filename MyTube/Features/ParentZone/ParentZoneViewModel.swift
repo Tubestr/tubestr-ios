@@ -90,14 +90,14 @@ final class ParentZoneViewModel: ObservableObject {
             switch self {
             case .parentIdentityMissing:
                 return "Generate or import the parent key before sending secure shares."
-            case .childProfileMissing:
-                return "Could not locate the child's profile for this video. Refresh Parent Zone and try again."
-            case .childKeyMissing(let name):
-                return "Create or import a key for \(name) before sending secure shares."
-            case .noApprovedFamilies:
-                return "Accept a Marmot invite from this family before sharing videos."
-            }
+        case .childProfileMissing:
+            return "Could not locate the child's profile for this video. Refresh Parent Zone and try again."
+        case .childKeyMissing(let name):
+            return "Create or import a key for \(name) before sending secure shares."
+        case .noApprovedFamilies:
+            return "Accept this family's connection invite before sharing videos."
         }
+    }
     }
 
     @Published var isUnlocked = false
@@ -144,7 +144,6 @@ final class ParentZoneViewModel: ObservableObject {
     private let parentKeyPackageStore: ParentKeyPackageStore
     private let welcomeClient: any WelcomeHandling
     private let parentalControlsStore: ParentalControlsStore
-    private var delegationCache: [UUID: ChildDelegation] = [:]
     private var lastCreatedChildID: UUID?
     private var childKeyLookup: [String: ChildIdentityItem] = [:]
     private var pendingParentKeyPackages: [String: [String]]
@@ -162,14 +161,6 @@ final class ParentZoneViewModel: ObservableObject {
     private var localParentKeyVariants: Set<String> = []
     private var marmotObservers: [NSObjectProtocol] = []
     private let logger = Logger(subsystem: "com.mytube", category: "ParentZoneViewModel")
-    private static let byteFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useGB, .useMB]
-        formatter.countStyle = .file
-        formatter.includesUnit = true
-        formatter.isAdaptive = true
-        return formatter
-    }()
 
     init(environment: AppEnvironment, welcomeClient: (any WelcomeHandling)? = nil) {
         self.environment = environment
@@ -320,7 +311,7 @@ final class ParentZoneViewModel: ObservableObject {
                     }
                     self.childIdentities[currentIndex] = self.childIdentities[currentIndex].updating(metadata: metadata)
                     if let identity = self.childIdentities[currentIndex].identity {
-                        let hex = identity.keyPair.publicKeyHex.lowercased()
+                        let hex = identity.publicKeyHex.lowercased()
                         self.childKeyLookup[hex] = self.childIdentities[currentIndex]
                         if let bech32 = identity.publicKeyBech32?.lowercased() {
                             self.childKeyLookup[bech32] = self.childIdentities[currentIndex]
@@ -329,9 +320,8 @@ final class ParentZoneViewModel: ObservableObject {
                     self.errorMessage = nil
                 }
             } catch {
-                let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 await MainActor.run {
-                    self.errorMessage = description
+                    self.errorMessage = error.displayMessage
                 }
             }
 
@@ -395,7 +385,7 @@ final class ParentZoneViewModel: ObservableObject {
                 try await environment.videoShareCoordinator.publishVideo(videoId)
                 loadPendingApprovals()
             } catch {
-                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                errorMessage = error.displayMessage
             }
         }
     }
@@ -428,7 +418,7 @@ final class ParentZoneViewModel: ObservableObject {
                 }
             } catch {
                 self.logger.error("Entitlement fetch failed: \(error.localizedDescription, privacy: .public)")
-                self.errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                self.errorMessage = error.displayMessage
             }
         }
     }
@@ -651,7 +641,6 @@ final class ParentZoneViewModel: ObservableObject {
     }
 
     private func unlock() {
-        print("🔓 ParentZone unlocking...")
         isUnlocked = true
         pinEntry = ""
         newPin = ""
@@ -670,26 +659,21 @@ final class ParentZoneViewModel: ObservableObject {
         refreshGroupSummaries()
         refreshRemoteShareStats()
         publishKeyPackageIfNeeded()
-        print("🔄 Starting async refresh tasks...")
         Task {
             await linkOrphanedGroups()
             await refreshPendingWelcomes()
             refreshPendingApprovals()
             await environment.syncCoordinator.refreshSubscriptions()
-            print("✅ Async refresh tasks completed")
         }
     }
     
     private func linkOrphanedGroups() async {
-        print("🔗 Checking for orphaned groups (groups not linked to child profiles)...")
         
         // Get all groups from MDK
         let groups: [Group]
         do {
             groups = try await environment.mdkActor.getGroups()
-            print("   Found \(groups.count) group(s) in MDK")
         } catch {
-            print("   ❌ Failed to fetch groups: \(error.localizedDescription)")
             return
         }
         
@@ -699,16 +683,13 @@ final class ParentZoneViewModel: ObservableObject {
         }
         
         for group in groups {
-            print("   Checking group: \(group.name) (ID: \(group.mlsGroupId.prefix(16))...)")
             
             // Check if any child is already linked to this group
             let alreadyLinked = childIdentities.contains { $0.profile.mlsGroupId == group.mlsGroupId }
             if alreadyLinked {
-                print("      ✅ Already linked to a child profile")
                 continue
             }
             
-            print("      ⚠️ Orphaned! Trying to link...")
             await tryLinkGroupToChildProfile(
                 groupId: group.mlsGroupId,
                 groupName: group.name,
@@ -716,7 +697,6 @@ final class ParentZoneViewModel: ObservableObject {
             )
         }
         
-        print("✅ Orphaned group check completed")
     }
 
     /// Publishes a key package to relays if we haven't already in this session.
@@ -863,14 +843,13 @@ final class ParentZoneViewModel: ObservableObject {
                 return ChildIdentityItem(
                     profile: profile,
                     identity: identity,
-                    delegation: delegationCache[profile.id],
                     publishedMetadata: metadata
                 )
             }
             childKeyLookup.removeAll()
             for item in childIdentities {
                 if let identity = item.identity {
-                    let hex = identity.keyPair.publicKeyHex.lowercased()
+                    let hex = identity.publicKeyHex.lowercased()
                     childKeyLookup[hex] = item
                     if let bech32 = identity.publicKeyBech32?.lowercased() {
                         childKeyLookup[bech32] = item
@@ -903,19 +882,14 @@ final class ParentZoneViewModel: ObservableObject {
     }
     
     func groupSummaries(for child: ChildIdentityItem) -> [GroupSummary] {
-        print("🔍 Looking for groups for child: '\(child.displayName)'")
-        print("   Total groups available: \(groupSummaries.count)")
-        print("   Total children: \(childIdentities.count)")
         
         // If there's only one child profile, show ALL groups (they all belong to this child)
         if childIdentities.count == 1 {
-            print("   ✅ Single child mode - showing all \(groupSummaries.count) groups")
             return Array(groupSummaries.values).sorted { $0.name < $1.name }
         }
         
         // Multiple children: try to filter by description or primary group ID
         for (id, summary) in groupSummaries {
-            print("   Group \(id.prefix(16))...: name='\(summary.name)', desc='\(summary.description)'")
         }
         
         let childName = child.displayName
@@ -925,7 +899,6 @@ final class ParentZoneViewModel: ObservableObject {
         if let primaryGroupId = child.profile.mlsGroupId,
            let primaryGroup = groupSummaries[primaryGroupId] {
             matchingGroups.append(primaryGroup)
-            print("   ✅ Added primary group: \(primaryGroup.name)")
         }
         
         // Also include groups whose description matches this child's name
@@ -933,11 +906,9 @@ final class ParentZoneViewModel: ObservableObject {
             if summary.description.contains("Secure sharing for \(childName)"),
                !matchingGroups.contains(where: { $0.id == summary.id }) {
                 matchingGroups.append(summary)
-                print("   ✅ Added group by description match: \(summary.name)")
             }
         }
         
-        print("   ✅ Found \(matchingGroups.count) matching group(s)")
         return matchingGroups.sorted { $0.name < $1.name }
     }
 
@@ -1013,32 +984,9 @@ final class ParentZoneViewModel: ObservableObject {
 
 
     func childDeviceInvite(for child: ChildIdentityItem) -> ChildDeviceInvite? {
-        guard let identity = child.identity,
-              let secret = child.secretKey,
-              let parentIdentity = try? ensureParentIdentityLoaded()
-        else { return nil }
-
-        let parentKey = parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex
-        let childKey = identity.publicKeyBech32 ?? identity.keyPair.publicKeyHex
-
-        var delegationPayload: ChildDeviceInvite.DelegationPayload?
-        if let delegation = child.delegation {
-            delegationPayload = ChildDeviceInvite.DelegationPayload(
-                delegator: delegation.delegatorPublicKey,
-                delegatee: delegation.delegateePublicKey,
-                conditions: delegation.conditions.encode(),
-                signature: delegation.signature
-            )
-        }
-
-        return ChildDeviceInvite(
-            version: 1,
-            childName: child.displayName,
-            childPublicKey: childKey,
-            childSecretKey: secret,
-            parentPublicKey: parentKey,
-            delegation: delegationPayload
-        )
+        // Children no longer have separate keys - this feature is deprecated
+        // Child device invites are no longer supported
+        return nil
     }
 
     func followInvite(for child: ChildIdentityItem) -> FollowInvite? {
@@ -1049,57 +997,88 @@ final class ParentZoneViewModel: ObservableObject {
             return nil
         }
 
+        // Collect all children's public keys (Phase 3: children as Nostr identities)
+        let allChildKeys = childIdentities.compactMap { $0.publicKey }
+
         // Key packages are no longer embedded - they're fetched from relays by the recipient
         return FollowInvite(
-            version: 3,
+            version: 4,
             childName: child.profile.name,
             childPublicKey: childPublic,
-            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex
+            parentPublicKey: parentIdentity.publicKeyBech32 ?? parentIdentity.publicKeyHex,
+            childPublicKeys: allChildKeys.isEmpty ? nil : allChildKeys
         )
     }
 
-    /// Fetches key packages from Nostr relays for the given parent.
-    /// This is called when processing a FollowInvite to fetch the remote parent's key packages.
+    /// Fetches key packages from Nostr relays for the given parent and their children.
+    /// This is called when processing a FollowInvite to fetch the remote family's key packages.
     func fetchKeyPackagesFromRelay(for invite: FollowInvite) async {
         guard let normalizedParent = ParentIdentityKey(string: invite.parentPublicKey)?.hex.lowercased() else {
-            print("⚠️ fetchKeyPackagesFromRelay: Invalid parent key in invite")
             keyPackageFetchState = .failed(parentKey: invite.parentPublicKey, error: "Invalid parent key format")
             return
         }
 
         // Check if we already have packages for this parent
         if let existingPackages = pendingParentKeyPackages[normalizedParent], !existingPackages.isEmpty {
-            print("✅ Already have \(existingPackages.count) key package(s) for parent \(normalizedParent.prefix(16))...")
             keyPackageFetchState = .fetched(parentKey: normalizedParent, count: existingPackages.count)
             return
         }
 
-        print("🔍 Fetching key packages from relay for parent \(normalizedParent.prefix(16))...")
+        // Skip if already fetching for this parent (prevents duplicate concurrent fetches)
+        if case .fetching(let key) = keyPackageFetchState, key == normalizedParent {
+            return
+        }
+
         keyPackageFetchState = .fetching(parentKey: normalizedParent)
 
         do {
-            let packages = try await environment.keyPackageDiscovery.fetchKeyPackagesPolling(
+            // Fetch parent's key packages
+            var allPackages = try await environment.keyPackageDiscovery.fetchKeyPackagesPolling(
                 for: normalizedParent,
                 timeout: 8
             )
 
-            if packages.isEmpty {
-                print("⚠️ No key packages found on relay for parent \(normalizedParent.prefix(16))...")
+            if allPackages.isEmpty {
+                // Check if another concurrent fetch already succeeded
+                if let existingPackages = pendingParentKeyPackages[normalizedParent], !existingPackages.isEmpty {
+                    keyPackageFetchState = .fetched(parentKey: normalizedParent, count: existingPackages.count)
+                    return
+                }
                 keyPackageFetchState = .failed(parentKey: normalizedParent, error: "No key packages found. Ask the other parent to refresh their invite.")
                 return
             }
 
-            print("📦 Fetched \(packages.count) key package(s) from relay for parent \(normalizedParent.prefix(16))...")
-            for (i, pkg) in packages.enumerated() {
-                print("   Package [\(i)] length: \(pkg.count) chars")
+            // Phase 3: Also fetch key packages for remote children included in the invite
+            for childKey in invite.allChildPublicKeys {
+                guard let normalizedChild = ParentIdentityKey(string: childKey)?.hex.lowercased() else {
+                    logger.warning("Invalid child key in invite: \(childKey.prefix(16), privacy: .public)")
+                    continue
+                }
+
+                // Skip if this is the same as parent (shouldn't happen but be safe)
+                guard normalizedChild != normalizedParent else { continue }
+
+                do {
+                    let childPackages = try await environment.keyPackageDiscovery.fetchKeyPackagesPolling(
+                        for: normalizedChild,
+                        timeout: 5
+                    )
+                    if !childPackages.isEmpty {
+                        allPackages.append(contentsOf: childPackages)
+                        logger.debug("Fetched \(childPackages.count) key package(s) for remote child")
+                    }
+                } catch {
+                    // Non-fatal: continue even if we can't fetch child packages
+                    logger.warning("Failed to fetch key packages for child \(childKey.prefix(16), privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
             }
 
-            pendingParentKeyPackages[normalizedParent] = packages
-            parentKeyPackageStore.save(packages: packages, forParentKey: normalizedParent)
-            keyPackageFetchState = .fetched(parentKey: normalizedParent, count: packages.count)
-            print("✅ Key packages stored")
+            logger.info("✅ Fetched total of \(allPackages.count) key package(s) for remote family")
+
+            pendingParentKeyPackages[normalizedParent] = allPackages
+            parentKeyPackageStore.save(packages: allPackages, forParentKey: normalizedParent)
+            keyPackageFetchState = .fetched(parentKey: normalizedParent, count: allPackages.count)
         } catch {
-            print("❌ Failed to fetch key packages: \(error.localizedDescription)")
             keyPackageFetchState = .failed(parentKey: normalizedParent, error: error.localizedDescription)
         }
     }
@@ -1110,19 +1089,16 @@ final class ParentZoneViewModel: ObservableObject {
         // For backwards compatibility, check if this is an old v2 invite with embedded packages
         // New v3 invites should use fetchKeyPackagesFromRelay instead
         guard let normalizedParent = ParentIdentityKey(string: invite.parentPublicKey)?.hex.lowercased() else {
-            print("⚠️ storePendingKeyPackages: Invalid parent key")
             return
         }
 
         // Check if we already have packages for this parent
         if let existingPackages = pendingParentKeyPackages[normalizedParent], !existingPackages.isEmpty {
-            print("✅ Already have packages for parent \(normalizedParent.prefix(16))...")
             keyPackageFetchState = .fetched(parentKey: normalizedParent, count: existingPackages.count)
             return
         }
 
         // No embedded packages in v3 invites - trigger async fetch
-        print("📡 No embedded packages in invite, fetching from relay...")
         Task {
             await fetchKeyPackagesFromRelay(for: invite)
         }
@@ -1145,75 +1121,97 @@ final class ParentZoneViewModel: ObservableObject {
         keyPackages: [String],
         normalizedParentKey: String
     ) async throws -> String {
-        print("🏗️ inviteParentToGroup: Always creating new group for new connection...")
-        
+
         // Note: Each parent-to-parent connection gets its own group.
         // Even if this child already has a group with another parent,
         // we create a new group for this specific connection.
         // The mlsGroupId on the Profile is just for the "primary" group (legacy field).
-        
+
         // Create new group with both parents as members
-        print("🏗️ Creating new group with remote parent as initial member...")
         let parentIdentity = try ensureParentIdentityLoaded()
         let relays = await environment.relayDirectory.currentRelayURLs()
         guard !relays.isEmpty else {
             throw GroupMembershipWorkflowError.relaysUnavailable
         }
         let relayStrings = relays.map(\.absoluteString)
-        
+
         // Build group name with both parent names
         let groupName = await buildGroupName(
             localParentKey: parentIdentity.publicKeyHex,
             remoteParentKey: normalizedParentKey,
             childName: child.displayName
         )
-        
-        // Create group with remote parent as the initial member (creator is added automatically)
+
+        // Collect all key packages: remote parent + local children
+        var allKeyPackages = keyPackages  // Start with remote parent's key packages
+
+        // Add local children's key packages (Phase 3: children as group members)
+        for item in childIdentities {
+            guard let childIdentity = item.identity else { continue }
+            do {
+                let childKeyPackage = try await createChildKeyPackageForGroup(
+                    for: childIdentity,
+                    relays: relays
+                )
+                allKeyPackages.append(childKeyPackage)
+                logger.debug("Added key package for local child \(item.displayName, privacy: .public)")
+            } catch {
+                logger.error("Failed to create key package for child \(item.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        // Create group with remote parent + local children as initial members
+        // (creator/local parent is added automatically)
         let request = GroupMembershipCoordinator.CreateGroupRequest(
             creatorPublicKeyHex: parentIdentity.publicKeyHex,
-            memberKeyPackageEventsJson: keyPackages,  // Remote parent as initial member
+            memberKeyPackageEventsJson: allKeyPackages,
             name: groupName,
             description: "Secure sharing for \(child.displayName)",
             relays: relayStrings,
             adminPublicKeys: [parentIdentity.publicKeyHex],
             relayOverride: relays
         )
-        print("🚀 Calling groupMembershipCoordinator.createGroup...")
         let response = try await environment.groupMembershipCoordinator.createGroup(request: request)
         let groupId = response.result.group.mlsGroupId
-        print("✅ Group created: \(groupId.prefix(16))...")
-        
+
         // Only update the Profile's mlsGroupId if it doesn't already have one
         // (this keeps the first group as the "primary" group for legacy compatibility)
         if identity.profile.mlsGroupId == nil {
-            print("💾 Updating ProfileStore with groupId (primary group)...")
             try environment.profileStore.updateGroupId(groupId, forProfileId: identity.profile.id)
-            print("✅ ProfileStore updated")
         } else {
-            print("ℹ️ Profile already has primary group \(identity.profile.mlsGroupId?.prefix(16) ?? "?")..., this is an additional group")
         }
-        
+
         // Update UI on main thread FIRST, before triggering notifications
-        print("🔄 Loading identities on MainActor...")
         await MainActor.run {
             loadIdentities()
         }
-        print("✅ Identities loaded")
-        
+
         // Refresh the specific group summary
-        print("🔄 Refreshing group summary for \(groupId.prefix(16))...")
         await refreshGroupSummariesAsync(mlsGroupId: groupId)
-        print("✅ Group summary refreshed")
-        
+
         // Refresh subscriptions to include new group members (this triggers notifications)
-        print("🔄 Refreshing subscriptions...")
         await environment.syncCoordinator.refreshSubscriptions()
-        print("✅ Subscriptions refreshed")
-        
+
         pendingParentKeyPackages.removeValue(forKey: normalizedParentKey)
         parentKeyPackageStore.removePackages(forParentKey: normalizedParentKey)
-        print("🎉 inviteParentToGroup completed successfully")
         return groupId
+    }
+
+    /// Creates a key package for a child to be used when adding to a group.
+    /// Unlike `createChildKeyPackage`, this doesn't publish to relays - it just creates for local use.
+    private func createChildKeyPackageForGroup(
+        for identity: ChildIdentity,
+        relays: [URL]
+    ) async throws -> String {
+        let relayStrings = relays.map(\.absoluteString)
+        let result = try await environment.mdkActor.createKeyPackage(
+            forPublicKey: identity.publicKeyHex,
+            relays: relayStrings
+        )
+        return try KeyPackageEventEncoder.encode(
+            result: result,
+            signingKey: identity.keyPair
+        )
     }
 
 
@@ -1273,22 +1271,16 @@ final class ParentZoneViewModel: ObservableObject {
         }
 
         let normalizedRemoteParent = remoteParentKey.hex.lowercased()
-        print("🔍 Looking up key packages for parent: \(normalizedRemoteParent.prefix(16))...")
-        print("   Pending packages keys: \(Array(pendingParentKeyPackages.keys).map { $0.prefix(16) })")
         guard let keyPackages = pendingParentKeyPackages[normalizedRemoteParent], !keyPackages.isEmpty else {
-            let message = GroupMembershipWorkflowError.keyPackageMissing.errorDescription ?? "Scan the other parent's Marmot invite before sending a request."
-            print("❌ Key packages not found!")
+            let message = GroupMembershipWorkflowError.keyPackageMissing.errorDescription ?? "Scan the other parent's connection invite before sending a request."
             errorMessage = message
             return message
         }
-        print("✅ Found \(keyPackages.count) key package(s)")
         for (i, pkg) in keyPackages.enumerated() {
-            print("   Package [\(i)] length: \(pkg.count)")
         }
 
         let groupId: String
         do {
-            print("🎯 Calling inviteParentToGroup...")
             groupId = try await inviteParentToGroup(
                 child: followerItem,
                 identity: followerIdentity,
@@ -1296,9 +1288,8 @@ final class ParentZoneViewModel: ObservableObject {
                 normalizedParentKey: normalizedRemoteParent
             )
         } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            errorMessage = message
-            return message
+            errorMessage = error.displayMessage
+            return error.displayMessage
         }
 
         do {
@@ -1336,6 +1327,13 @@ final class ParentZoneViewModel: ObservableObject {
             // Don't create group yet - MLS requires at least 2 members
             // Group will be created when first follow is established
             errorMessage = nil
+
+            // Backup child keys, publish kind 0 metadata and key package to Nostr
+            Task {
+                await publishChildKeyBackup()
+                await publishChildMetadata(for: identity.profile)
+                await publishChildKeyPackage(for: identity.profile)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1345,13 +1343,7 @@ final class ParentZoneViewModel: ObservableObject {
         guard let item = childIdentities.first(where: { $0.id == profileId }) else { return }
 
         do {
-            var identity = try environment.identityManager.ensureChildIdentity(for: item.profile)
-            let delegation = try environment.identityManager.issueDelegation(
-                to: identity,
-                conditions: DelegationConditions.defaultChild()
-            )
-            identity.delegation = delegation
-            delegationCache[profileId] = delegation
+            let identity = try environment.identityManager.ensureChildIdentity(for: item.profile)
             loadIdentities()
             childSecretVisibility.insert(profileId)
             errorMessage = nil
@@ -1359,8 +1351,12 @@ final class ParentZoneViewModel: ObservableObject {
                 do {
                     try await ensureChildGroup(for: identity, preferredName: item.profile.name)
                 } catch {
-                    self.errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    self.errorMessage = error.displayMessage
                 }
+                // Backup child keys, publish kind 0 metadata and key package to Nostr
+                await publishChildKeyBackup()
+                await publishChildMetadata(for: item.profile)
+                await publishChildKeyPackage(for: item.profile)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -1377,32 +1373,20 @@ final class ParentZoneViewModel: ObservableObject {
         }
     }
 
-    func importChildProfile(name: String, secret: String, theme: ThemeDescriptor) {
+    func importChildProfile(name: String, theme: ThemeDescriptor) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedSecret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedName.isEmpty else {
             errorMessage = "Enter a name for the child profile."
             return
         }
-        guard !trimmedSecret.isEmpty else {
-            errorMessage = "Paste the child nsec before importing."
-            return
-        }
 
         do {
-            var identity = try environment.identityManager.importChildIdentity(
-                trimmedSecret,
-                profileName: trimmedName,
+            let identity = try environment.identityManager.createChildIdentity(
+                name: trimmedName,
                 theme: theme,
                 avatarAsset: theme.defaultAvatarAsset
             )
-            let delegation = try environment.identityManager.issueDelegation(
-                to: identity,
-                conditions: DelegationConditions.defaultChild()
-            )
-            identity.delegation = delegation
-            delegationCache[identity.profile.id] = delegation
             loadIdentities()
             childSecretVisibility.insert(identity.profile.id)
             lastCreatedChildID = identity.profile.id
@@ -1411,30 +1395,13 @@ final class ParentZoneViewModel: ObservableObject {
                 do {
                     try await ensureChildGroup(for: identity, preferredName: trimmedName)
                 } catch {
-                    self.errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    self.errorMessage = error.displayMessage
                 }
+                // Backup child keys, publish kind 0 metadata and key package to Nostr
+                await publishChildKeyBackup()
+                await publishChildMetadata(for: identity.profile)
+                await publishChildKeyPackage(for: identity.profile)
             }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func reissueDelegation(for profileId: UUID) {
-        guard let item = childIdentities.first(where: { $0.id == profileId }),
-              let identity = item.identity else {
-            errorMessage = "Child key is missing; generate or import it first."
-            return
-        }
-
-        do {
-            let delegation = try environment.identityManager.issueDelegation(
-                to: identity,
-                conditions: DelegationConditions.defaultChild()
-            )
-            delegationCache[profileId] = delegation
-            loadIdentities()
-            childSecretVisibility.insert(profileId)
-            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1493,7 +1460,6 @@ final class ParentZoneViewModel: ObservableObject {
                 self.parentSecretVisible = false
                 self.childIdentities = []
                 self.childSecretVisibility.removeAll()
-                self.delegationCache.removeAll()
                 self.childKeyLookup.removeAll()
                 self.localParentKeyVariants.removeAll()
                 self.pendingWelcomes = []
@@ -1535,16 +1501,11 @@ final class ParentZoneViewModel: ObservableObject {
         isRefreshingPendingWelcomes = true
         defer { isRefreshingPendingWelcomes = false }
         do {
-            print("🔍 Fetching pending welcomes from MDK...")
             let welcomes = try await welcomeClient.getPendingWelcomes()
-            print("✅ Found \(welcomes.count) pending welcome(s)")
             for (i, welcome) in welcomes.enumerated() {
-                print("   Welcome [\(i)]: \(welcome.groupName) (ID: \(welcome.id.prefix(16))...)")
             }
             pendingWelcomes = welcomes.map(PendingWelcomeItem.init)
-            print("✅ Updated pendingWelcomes @Published property")
         } catch {
-            print("❌ Failed to load pending welcomes: \(error.localizedDescription)")
             logger.error("Failed to load pending welcomes: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
@@ -1588,22 +1549,16 @@ final class ParentZoneViewModel: ObservableObject {
     }
 
     private func handleAcceptedWelcome(_ welcome: Welcome, linkToChildId: UUID?) async {
-        print("🎉 handleAcceptedWelcome called for group: \(welcome.mlsGroupId.prefix(16))...")
-        print("   Group name: \(welcome.groupName)")
         
         approvePendingFollows(for: welcome)
         
         // Link to specified child, or try auto-matching by name
         if let childId = linkToChildId {
-            print("   🔗 Linking to explicitly selected child: \(childId)")
             do {
                 try environment.profileStore.updateGroupId(welcome.mlsGroupId, forProfileId: childId)
-                print("   ✅ Linked group to child profile")
             } catch {
-                print("   ❌ Failed to link: \(error.localizedDescription)")
             }
         } else {
-            print("   🔍 No child specified, trying auto-match by name...")
             await tryLinkGroupToChildProfile(
                 groupId: welcome.mlsGroupId,
                 groupName: welcome.groupName,
@@ -1645,10 +1600,7 @@ final class ParentZoneViewModel: ObservableObject {
         groupName: String,
         groupDescription: String? = nil
     ) async {
-        print("🔗 Trying to link group \(groupId.prefix(16))... to child profile...")
-        print("   Group name: '\(groupName)'")
         if let groupDescription {
-            print("   Group description: '\(groupDescription)'")
         }
         
         // Strategy 1: Try to match by explicit child name hints (group name or description)
@@ -1673,41 +1625,31 @@ final class ParentZoneViewModel: ObservableObject {
 
         if let matchName = candidateNames.first,
            let matchingChild = childIdentities.first(where: { $0.profile.name.lowercased() == matchName.lowercased() }) {
-            print("   ✅ Found name match: \(matchingChild.displayName)")
             
             if matchingChild.profile.mlsGroupId != nil {
-                print("   ⚠️ Child already has group ID: \(matchingChild.profile.mlsGroupId!.prefix(16))...")
                 return
             }
             
             do {
                 try environment.profileStore.updateGroupId(groupId, forProfileId: matchingChild.id)
-                print("   ✅ Linked child '\(matchingChild.displayName)' to group \(groupId.prefix(16))...")
                 await MainActor.run {
                     loadIdentities()
                 }
                 return
             } catch {
-                print("   ❌ Failed to update ProfileStore: \(error.localizedDescription)")
             }
         }
         
         // Strategy 2: If no name match, link to first child without a group
-        print("   🔍 No name match, looking for first unlinked child...")
         if let unlinkedChild = childIdentities.first(where: { $0.profile.mlsGroupId == nil }) {
-            print("   ✅ Found unlinked child: \(unlinkedChild.displayName)")
             do {
                 try environment.profileStore.updateGroupId(groupId, forProfileId: unlinkedChild.id)
-                print("   ✅ Auto-linked child '\(unlinkedChild.displayName)' to group \(groupId.prefix(16))...")
                 await MainActor.run {
                     loadIdentities()
                 }
             } catch {
-                print("   ❌ Failed to update ProfileStore: \(error.localizedDescription)")
             }
         } else {
-            print("   ⚠️ All children already have groups assigned")
-            print("   Available children: \(childIdentities.map { "\($0.profile.name) (group: \($0.profile.mlsGroupId?.prefix(8) ?? "none"))" })")
         }
     }
 
@@ -1765,7 +1707,6 @@ final class ParentZoneViewModel: ObservableObject {
     }
 
     private func handlePendingWelcomeNotification() {
-        print("🔔 handlePendingWelcomeNotification called, isUnlocked=\(isUnlocked)")
         // Always refresh - don't wait for user to unlock or visit the tab
         Task { [weak self] in
             await self?.refreshPendingWelcomes()
@@ -1774,7 +1715,6 @@ final class ParentZoneViewModel: ObservableObject {
     }
 
     private func handleMarmotStateNotification() {
-        print("🔔 handleMarmotStateNotification called, isUnlocked=\(isUnlocked)")
         // Always refresh state, even if not unlocked - keeps internal state current
         refreshMarmotDiagnostics()
         Task { [weak self] in
@@ -1808,45 +1748,32 @@ final class ParentZoneViewModel: ObservableObject {
     }
     
     private func refreshGroupSummariesAsync(mlsGroupId: String? = nil) async {
-        print("📊 refreshGroupSummariesAsync called for: \(mlsGroupId?.prefix(16) ?? "all groups")...")
         do {
             if let groupId = mlsGroupId {
-                print("   🔍 Fetching group from MDK...")
                 guard let group = try await self.environment.mdkActor.getGroup(mlsGroupId: groupId) else {
-                    print("   ⚠️ Group not found, removing from summaries")
                     await MainActor.run {
                         self.groupSummaries.removeValue(forKey: groupId)
                     }
                     return
                 }
-                print("   ✅ Group fetched: \(group.name)")
-                print("   🔍 Building summary...")
                 if let summary = await self.buildGroupSummary(group) {
-                    print("   ✅ Summary built with \(summary.memberCount) members")
-                    print("   💾 Updating @Published groupSummaries on MainActor...")
                     await MainActor.run {
                         self.groupSummaries[groupId] = summary
-                        print("   ✅ @Published groupSummaries updated!")
                     }
                 }
             } else {
-                print("   🔍 Fetching all groups from MDK...")
                 let groups = try await self.environment.mdkActor.getGroups()
-                print("   ✅ Found \(groups.count) group(s)")
                 var summaries: [String: GroupSummary] = [:]
                 for group in groups {
                     if let summary = await self.buildGroupSummary(group) {
                         summaries[group.mlsGroupId] = summary
                     }
                 }
-                print("   💾 Updating @Published groupSummaries on MainActor...")
                 await MainActor.run {
                     self.groupSummaries = summaries
-                    print("   ✅ @Published groupSummaries updated!")
                 }
             }
         } catch {
-            print("   ❌ Error: \(error.localizedDescription)")
             self.logger.error("Failed to refresh Marmot groups: \(error.localizedDescription, privacy: .public)")
         }
     }
@@ -1900,7 +1827,7 @@ final class ParentZoneViewModel: ObservableObject {
                 let summaries = try self.environment.remoteVideoStore.shareSummaries()
                 var mapping: [String: RemoteShareStats] = [:]
                 for summary in summaries {
-                    let canonical = self.canonicalChildKey(summary.ownerChild) ?? summary.ownerChild.lowercased()
+                    let canonical = ParentIdentityKey.normalizedHex(from: summary.ownerChild) ?? summary.ownerChild.lowercased()
                     mapping[canonical] = RemoteShareStats(
                         availableCount: summary.availableCount,
                         revokedCount: summary.revokedCount,
@@ -2071,6 +1998,93 @@ final class ParentZoneViewModel: ObservableObject {
         return try event.asJson()
     }
 
+    private func publishChildKeyBackup() async {
+        do {
+            try await environment.childKeyBackupService.publishBackup()
+            logger.info("Child key backup published successfully")
+        } catch {
+            logger.error("Failed to publish child key backup: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Publishes kind 0 metadata for a child to Nostr relays.
+    /// This makes the child discoverable as a Nostr identity with mytube_parent reference.
+    private func publishChildMetadata(for profile: ProfileModel) async {
+        do {
+            _ = try await environment.childProfilePublisher.publishProfile(for: profile)
+            logger.info("Child metadata published for \(profile.name, privacy: .public)")
+        } catch {
+            logger.error("Failed to publish child metadata: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Creates and publishes a key package for a child, enabling them to be added to Marmot groups.
+    /// The key package is signed with the child's own keypair.
+    /// - Parameters:
+    ///   - identity: The child's identity containing their keypair
+    ///   - relays: URLs of relays to publish to
+    /// - Returns: The key package event JSON string
+    @discardableResult
+    private func createChildKeyPackage(
+        for identity: ChildIdentity,
+        relays: [URL]
+    ) async throws -> String {
+        let relayStrings = relays.map(\.absoluteString)
+        let result = try await environment.mdkActor.createKeyPackage(
+            forPublicKey: identity.publicKeyHex,
+            relays: relayStrings
+        )
+        let eventJson = try KeyPackageEventEncoder.encode(
+            result: result,
+            signingKey: identity.keyPair
+        )
+        try await environment.marmotTransport.publish(
+            jsonEvent: eventJson,
+            relayOverride: relays
+        )
+        logger.info("📦 Published key package for child \(identity.profile.name, privacy: .public)")
+        return eventJson
+    }
+
+    /// Publishes key packages for all local children to Nostr relays.
+    /// This enables other parents to add our children to groups.
+    private func publishAllChildKeyPackages() async {
+        let relays = await environment.relayDirectory.currentRelayURLs()
+        guard !relays.isEmpty else {
+            logger.warning("No relays configured, cannot publish child key packages")
+            return
+        }
+
+        for item in childIdentities {
+            guard let identity = item.identity else { continue }
+            do {
+                try await createChildKeyPackage(for: identity, relays: relays)
+            } catch {
+                logger.error("Failed to publish key package for \(item.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Publishes a key package for a single child to Nostr relays.
+    private func publishChildKeyPackage(for profile: ProfileModel) async {
+        guard let identity = environment.identityManager.childIdentity(for: profile) else {
+            logger.warning("No identity found for child \(profile.name, privacy: .public), skipping key package publish")
+            return
+        }
+
+        let relays = await environment.relayDirectory.currentRelayURLs()
+        guard !relays.isEmpty else {
+            logger.warning("No relays configured, cannot publish child key package")
+            return
+        }
+
+        do {
+            try await createChildKeyPackage(for: identity, relays: relays)
+        } catch {
+            logger.error("Failed to publish key package for \(profile.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     private func normalizedKeyVariants(_ key: String) -> [String] {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
@@ -2093,85 +2107,19 @@ final class ParentZoneViewModel: ObservableObject {
         return Array(variants)
     }
 
-    private func canonicalChildKey(_ value: String) -> String? {
-        ParentIdentityKey(string: value)?.hex.lowercased()
-    }
-
-
-    struct CloudEntitlement: Equatable {
-        let plan: String
-        let status: String
-        let expiresAt: Date?
-        let quotaBytes: Int64?
-        let usedBytes: Int64?
-
-        init(response: EntitlementResponse) {
-            self.plan = response.plan
-            self.status = response.status
-            self.expiresAt = response.expiresAt
-            self.quotaBytes = CloudEntitlement.parseBytes(response.quotaBytes)
-            self.usedBytes = CloudEntitlement.parseBytes(response.usedBytes)
-        }
-
-        var statusLabel: String {
-            status
-                .replacingOccurrences(of: "_", with: " ")
-                .capitalized
-        }
-
-        var isActive: Bool {
-            status.caseInsensitiveCompare("active") == .orderedSame
-        }
-
-        var usageSummary: String? {
-            guard let quotaBytes else { return nil }
-            let used = max(usedBytes ?? 0, 0)
-            let quotaDescription = ParentZoneViewModel.byteFormatter.string(fromByteCount: quotaBytes)
-            let usedDescription = ParentZoneViewModel.byteFormatter.string(fromByteCount: used)
-            return "\(usedDescription) of \(quotaDescription) used"
-        }
-
-        var quotaDescription: String? {
-            guard let quotaBytes else { return nil }
-            return ParentZoneViewModel.byteFormatter.string(fromByteCount: quotaBytes)
-        }
-
-        var usageFraction: Double? {
-            guard let quota = quotaBytes,
-                  quota > 0,
-                  let used = usedBytes else { return nil }
-            return min(max(Double(used) / Double(quota), 0), 1)
-        }
-
-        private static func parseBytes(_ value: String?) -> Int64? {
-            guard let value else { return nil }
-            return Int64(value)
-        }
-    }
-
-    struct StorageUsage {
-        let media: Int64
-        let thumbs: Int64
-        let edits: Int64
-
-        static let empty = StorageUsage(media: 0, thumbs: 0, edits: 0)
-
-        var total: Int64 { media + thumbs + edits }
-    }
-
     struct ChildIdentityItem: Identifiable {
         let profile: ProfileModel
         let identity: ChildIdentity?
-        let delegation: ChildDelegation?
         let publishedMetadata: ChildProfileModel?
 
         var id: UUID { profile.id }
         var displayName: String { profile.name }
         var publicKey: String? {
-            identity?.publicKeyBech32 ?? identity?.keyPair.publicKeyHex
+            identity?.publicKeyBech32 ?? identity?.publicKeyHex
         }
         var secretKey: String? {
-            identity?.secretKeyBech32 ?? identity?.keyPair.privateKeyData.hexEncodedString()
+            // Children no longer have secret keys - they are profiles owned by parents
+            identity?.secretKeyBech32
         }
 
         var publishedName: String? {
@@ -2182,17 +2130,10 @@ final class ParentZoneViewModel: ObservableObject {
             publishedMetadata?.updatedAt
         }
 
-        var delegationTag: String? {
-            guard let tag = delegation?.nostrTag else { return nil }
-            let components = [tag.name, tag.value] + tag.otherParameters
-            return "[\(components.joined(separator: ", "))]"
-        }
-
         func updating(metadata: ChildProfileModel?) -> ChildIdentityItem {
             ChildIdentityItem(
                 profile: profile,
                 identity: identity,
-                delegation: delegation,
                 publishedMetadata: metadata
             )
         }
@@ -2278,9 +2219,35 @@ final class ParentZoneViewModel: ObservableObject {
     struct FollowInvite: Codable, Sendable, Equatable {
         let version: Int
         let childName: String?
-        let childPublicKey: String  // Now contains profile ID instead of pubkey
+        let childPublicKey: String  // Primary child's public key (for v1-v3 compatibility)
         let parentPublicKey: String
         // Note: parentKeyPackages removed - now fetched from Nostr relays via KeyPackageDiscovery
+
+        /// All children's public keys (Phase 3: children as Nostr identities)
+        /// Added in v4. Recipients use these to fetch key packages for all children.
+        let childPublicKeys: [String]?
+
+        init(
+            version: Int,
+            childName: String?,
+            childPublicKey: String,
+            parentPublicKey: String,
+            childPublicKeys: [String]? = nil
+        ) {
+            self.version = version
+            self.childName = childName
+            self.childPublicKey = childPublicKey
+            self.parentPublicKey = parentPublicKey
+            self.childPublicKeys = childPublicKeys
+        }
+
+        /// Returns all children's public keys, with fallback to single childPublicKey for older versions
+        var allChildPublicKeys: [String] {
+            if let keys = childPublicKeys, !keys.isEmpty {
+                return keys
+            }
+            return [childPublicKey]
+        }
 
         var encodedURL: String? {
             guard let data = try? JSONEncoder().encode(self) else {
@@ -2299,8 +2266,10 @@ final class ParentZoneViewModel: ObservableObject {
 
         var shareText: String {
             let nameDescriptor = childName.map { " (\($0))" } ?? ""
+            let childCount = allChildPublicKeys.count
+            let childrenSuffix = childCount > 1 ? " +\(childCount - 1) more" : ""
             return """
-            Tubestr Family Invite\(nameDescriptor)
+            Tubestr Family Invite\(nameDescriptor)\(childrenSuffix)
             Parent: \(parentPublicKey)
             Profile: \(childPublicKey)
 

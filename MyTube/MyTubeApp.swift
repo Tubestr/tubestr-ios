@@ -30,7 +30,5 @@ struct MyTubeApp: App {
         environment.pendingDeepLink = url
         
         // The URL will be handled by ParentZoneView when it appears
-        // We could add a more sophisticated routing mechanism here if needed
-        print("🔗 Deep link received: \(url.absoluteString)")
     }
 }

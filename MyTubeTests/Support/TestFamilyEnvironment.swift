@@ -179,7 +179,15 @@ class TestFamilyEnvironment {
             storagePaths: storagePaths,
             groupMembershipCoordinator: groupMembershipCoordinator
         )
-        
+
+        let childKeyBackupService = ChildKeyBackupService(
+            identityManager: identityManager,
+            keyStore: keyStore,
+            profileStore: profileStore,
+            nostrClient: nostrClient,
+            relayDirectory: relayDirectory
+        )
+
         let syncCoordinator = SyncCoordinator(
             persistence: persistence,
             nostrClient: nostrClient,
@@ -188,6 +196,7 @@ class TestFamilyEnvironment {
             mdkActor: mdkActor,
             keyStore: keyStore,
             cryptoService: cryptoService,
+            profileStore: profileStore,
             parentProfileStore: parentProfileStore,
             childProfileStore: childProfileStore,
             likeStore: likeStore,
@@ -200,7 +209,6 @@ class TestFamilyEnvironment {
         let likePublisher = LikePublisher(
             marmotShareService: marmotShareService,
             keyStore: keyStore,
-            childProfileStore: childProfileStore,
             remoteVideoStore: remoteVideoStore
         )
         
@@ -264,6 +272,7 @@ class TestFamilyEnvironment {
             groupMembershipCoordinator: groupMembershipCoordinator,
             reportStore: reportStore,
             reportCoordinator: reportCoordinator,
+            childKeyBackupService: childKeyBackupService,
             backendClient: backendClient,
             storageConfigurationStore: storageConfig,
             safetyConfigurationStore: safetyConfig,

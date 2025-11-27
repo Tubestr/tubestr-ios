@@ -14,6 +14,7 @@ struct ProfileMetadataPayload: Codable, Sendable {
     var picture: String?
     var nip05: String?
     var wrapKey: String?
+    var mytubeParent: String?
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -22,5 +23,6 @@ struct ProfileMetadataPayload: Codable, Sendable {
         case picture
         case nip05
         case wrapKey = "mytube_wrap_key"
+        case mytubeParent = "mytube_parent"
     }
 }

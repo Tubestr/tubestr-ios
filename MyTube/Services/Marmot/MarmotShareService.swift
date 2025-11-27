@@ -198,7 +198,7 @@ extension MarmotShareService.ShareError: LocalizedError {
         case .parentIdentityMissing:
             return "Parent identity is missing. Generate or import it before sharing."
         case .payloadEncodingFailed:
-            return "Unable to encode the Marmot message payload."
+            return "Unable to encode the sharing message payload."
         }
     }
 }

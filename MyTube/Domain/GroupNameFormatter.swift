@@ -93,8 +93,8 @@ struct GroupNameFormatter {
 
     static func canonicalParentKey(_ value: String?) -> String? {
         guard let value else { return nil }
-        if let parsed = ParentIdentityKey(string: value) {
-            return parsed.hex.lowercased()
+        if let normalized = ParentIdentityKey.normalizedHex(from: value) {
+            return normalized
         }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

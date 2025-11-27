@@ -36,14 +36,16 @@ final class IdentityManagerTests: XCTestCase {
         let fetchedParent = try identityManager.parentIdentity()
         XCTAssertEqual(fetchedParent?.publicKeyHex, parent.publicKeyHex)
 
-        // Children are now just profiles without separate keys
-        let child = identityManager.childIdentity(for: profile)
-        XCTAssertNotNil(child)
-        XCTAssertEqual(child?.profile.id, profile.id)
-        // Child "public key" is now just the profile ID
-        XCTAssertNotNil(child?.publicKeyHex)
-        // Children don't have secret keys
-        XCTAssertNil(child?.secretKeyBech32)
+        // Child won't have identity until we create one for it
+        let existingChild = identityManager.childIdentity(for: profile)
+        XCTAssertNil(existingChild, "Profile without keypair should return nil")
+
+        // Use ensureChildIdentity to generate keypair
+        let child = try identityManager.ensureChildIdentity(for: profile)
+        XCTAssertEqual(child.profile.id, profile.id)
+        XCTAssertNotNil(child.publicKeyHex)
+        // Children now have their own Nostr keypairs
+        XCTAssertNotNil(child.secretKeyBech32)
     }
 
     func testCreateAndImportChildProfile() throws {
@@ -61,11 +63,10 @@ final class IdentityManagerTests: XCTestCase {
             avatarAsset: "avatar.dolphin"
         )
         XCTAssertEqual(created.profile.name, "Nova")
-        // Children don't have delegations anymore
-        XCTAssertNil(created.delegation)
-        // Children don't have secret keys
-        XCTAssertNil(created.secretKeyBech32)
-        
+        // Children now have their own Nostr keypairs
+        XCTAssertNotNil(created.secretKeyBech32)
+        XCTAssertNotNil(created.publicKeyHex)
+
         // Test creating another child profile
         let second = try identityManager.createChildIdentity(
             name: "Nova Backup",
@@ -73,6 +74,8 @@ final class IdentityManagerTests: XCTestCase {
             avatarAsset: "avatar.dolphin"
         )
         XCTAssertEqual(second.profile.name, "Nova Backup")
-        XCTAssertNotEqual(second.publicKeyHex, created.publicKeyHex)  // Different profile IDs
+        // Each child has unique Nostr keypair
+        XCTAssertNotEqual(second.publicKeyHex, created.publicKeyHex)
+        XCTAssertNotNil(second.secretKeyBech32)
     }
 }

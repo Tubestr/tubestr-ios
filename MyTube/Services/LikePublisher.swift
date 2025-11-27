@@ -20,23 +20,20 @@ enum LikePublisherError: Error {
 actor LikePublisher {
     private let marmotShareService: MarmotShareService
     private let keyStore: KeychainKeyStore
-    private let childProfileStore: ChildProfileStore
     private let remoteVideoStore: RemoteVideoStore
     private let logger = Logger(subsystem: "com.mytube", category: "LikePublisher")
-    
+
     // Rate limiting: 120 likes per hour per child
     private var rateLimitTracker: [String: [Date]] = [:]
     private let maxLikesPerHour = 120
-    
+
     init(
         marmotShareService: MarmotShareService,
         keyStore: KeychainKeyStore,
-        childProfileStore: ChildProfileStore,
         remoteVideoStore: RemoteVideoStore
     ) {
         self.marmotShareService = marmotShareService
         self.keyStore = keyStore
-        self.childProfileStore = childProfileStore
         self.remoteVideoStore = remoteVideoStore
     }
     
@@ -47,25 +44,21 @@ actor LikePublisher {
     ) async throws {
         // Check rate limit
         try await checkRateLimit(for: viewerChildNpub)
-        
-        // Get video owner information
-        let ownerChild = try getVideoOwner(videoId: videoId)
-        guard let viewerHex = childProfileStore.canonicalKey(viewerChildNpub) else {
-            throw LikePublisherError.missingChildProfile
-        }
-        guard let ownerHex = childProfileStore.canonicalKey(ownerChild) else {
+
+        // Get the video to find its group
+        guard let video = try remoteVideoStore.fetchVideo(videoId: videoId.uuidString) else {
             throw LikePublisherError.missingVideoOwner
         }
-        let groupId = try resolveGroupId(
-            viewerChildHex: viewerHex,
-            ownerChildHex: ownerHex
-        )
-        
+
+        guard let groupId = video.mlsGroupId else {
+            throw LikePublisherError.groupUnavailable
+        }
+
         // Get parent key
         guard let parentKeyPair = try keyStore.fetchKeyPair(role: .parent) else {
             throw LikePublisherError.parentIdentityMissing
         }
-        
+
         // Create like message
         let message = LikeMessage(
             videoId: videoId.uuidString,
@@ -73,15 +66,15 @@ actor LikePublisher {
             by: parentKeyPair.publicKeyHex,
             timestamp: Date()
         )
-        
+
         try await marmotShareService.publishLike(
             message: message,
             mlsGroupId: groupId
         )
-        
+
         // Track for rate limiting
         await recordLikeForRateLimit(childNpub: viewerChildNpub)
-        
+
         logger.info("Published like for video \(videoId) from \(viewerChildNpub.prefix(8))…")
     }
     
@@ -94,32 +87,7 @@ actor LikePublisher {
         // The like is just removed locally
         logger.info("Unlike recorded locally for video \(videoId) from \(viewerChildNpub.prefix(8))…")
     }
-    
-    private func getVideoOwner(videoId: UUID) throws -> String {
-        do {
-            if let remoteVideo = try remoteVideoStore.fetchVideo(videoId: videoId.uuidString) {
-                return remoteVideo.ownerChild
-            }
-        } catch {
-            logger.error("Failed to load remote video \(videoId) for like publishing: \(error.localizedDescription, privacy: .public)")
-            throw error
-        }
 
-        // If not found in remote videos, it might be a local video
-        // For local videos, we would need to look up the owner from the video share messages
-        // For now, throw an error as likes are primarily for shared videos
-        throw LikePublisherError.missingVideoOwner
-    }
-    
-    private func resolveGroupId(
-        viewerChildHex: String,
-        ownerChildHex: String
-    ) throws -> String {
-        // Get group from remote video store
-        // Remote videos should have the group ID they came from
-        throw LikePublisherError.groupUnavailable  // TODO: Get from remote video metadata
-    }
-    
     private func checkRateLimit(for childNpub: String) async throws {
         let now = Date()
         let oneHourAgo = now.addingTimeInterval(-3600)

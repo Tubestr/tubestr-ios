@@ -13,6 +13,14 @@ struct ParentIdentityKey {
 
     var displayValue: String { bech32 ?? hex }
 
+    /// Normalized lowercase hex representation for consistent key comparisons.
+    var normalizedHex: String { hex.lowercased() }
+
+    /// Convenience to parse and normalize a key in one step.
+    static func normalizedHex(from string: String) -> String? {
+        ParentIdentityKey(string: string)?.normalizedHex
+    }
+
     init?(string: String) {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

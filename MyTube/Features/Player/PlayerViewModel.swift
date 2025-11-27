@@ -180,7 +180,7 @@ final class PlayerViewModel: ObservableObject {
                 await MainActor.run {
                     self.video.liked = !targetState
                     self.refreshLikes()
-                    self.likeError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    self.likeError = error.displayMessage
                 }
                 logger.error("Failed to toggle like for video \(self.video.id): \(error.localizedDescription, privacy: .public)")
             }
@@ -245,7 +245,7 @@ final class PlayerViewModel: ObservableObject {
 
             reportSuccess = true
         } catch {
-            reportError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            reportError = error.displayMessage
         }
 
         isReporting = false
@@ -313,13 +313,7 @@ final class PlayerViewModel: ObservableObject {
         do {
             if let identity = try environment.identityManager.childIdentity(for: profile) {
                 viewerPublicKeyHex = identity.publicKeyHex.lowercased()
-                if let bech32 = identity.publicKeyBech32 {
-                    viewerChildNpub = bech32
-                } else if let encoded = try? NIP19.encodePublicKey(identity.keyPair.publicKeyData) {
-                    viewerChildNpub = encoded
-                } else {
-                    viewerChildNpub = identity.publicKeyHex.lowercased()
-                }
+                viewerChildNpub = identity.publicKeyBech32 ?? identity.publicKeyHex.lowercased()
                 viewerDisplayName = profile.name
             } else {
                 viewerPublicKeyHex = nil

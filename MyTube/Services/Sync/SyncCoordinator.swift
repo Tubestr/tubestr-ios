@@ -21,6 +21,7 @@ actor SyncCoordinator {
     private let mdkActor: any MarmotMdkClient & MarmotMessageQuerying
     private let eventReducer: NostrEventReducer
     private let keyStore: KeychainKeyStore
+    private let profileStore: ProfileStore
     private let parentProfileStore: ParentProfileStore
     private let childProfileStore: ChildProfileStore
     private var eventTask: Task<Void, Never>?
@@ -39,6 +40,7 @@ actor SyncCoordinator {
         mdkActor: any MarmotMdkClient & MarmotMessageQuerying,
         keyStore: KeychainKeyStore,
         cryptoService: CryptoEnvelopeService,
+        profileStore: ProfileStore,
         parentProfileStore: ParentProfileStore,
         childProfileStore: ChildProfileStore,
         likeStore: LikeStore,
@@ -52,6 +54,7 @@ actor SyncCoordinator {
         self.marmotTransport = marmotTransport
         self.mdkActor = mdkActor
         self.keyStore = keyStore
+        self.profileStore = profileStore
         self.parentProfileStore = parentProfileStore
         self.childProfileStore = childProfileStore
         self.eventReducer = NostrEventReducer(
@@ -279,11 +282,19 @@ actor SyncCoordinator {
             parentHex = parentPair.publicKeyHex.lowercased()
         }
 
-        // Children no longer have separate Nostr keys - they are just profiles
-        // So childKeys will be empty
-        let childKeys: Set<String> = []
+        // Gather local child keys from profile store + keychain
+        var childKeys: Set<String> = []
+        if let profiles = try? profileStore.fetchProfiles() {
+            for profile in profiles {
+                if let keyPair = try? keyStore.fetchKeyPair(role: .child(id: profile.id)) {
+                    childKeys.insert(keyPair.publicKeyHex.lowercased())
+                }
+            }
+        }
+        logger.debug("📋 Found \(childKeys.count) local child key(s)")
+
         var remoteParents: Set<String> = []
-        
+
         // Get all group members AND group Nostr keys from MDK
         // We need both parent member keys and the group's own Nostr public key
         var groupNostrKeys: Set<String> = []
@@ -295,7 +306,7 @@ actor SyncCoordinator {
                 let groupKey = group.nostrGroupId.lowercased()
                 groupNostrKeys.insert(groupKey)
                 logger.debug("   Group: \(group.name) (MLS: \(group.mlsGroupId.prefix(16))..., Nostr: \(groupKey.prefix(16))...)")
-                
+
                 // Also get member keys for metadata/key package subscriptions
                 do {
                     // getMembers returns [String] of public key hex values
@@ -303,10 +314,10 @@ actor SyncCoordinator {
                     logger.debug("      Members: \(memberKeys.count)")
                     for memberHex in memberKeys {
                         let normalized = memberHex.lowercased()
-                        // Add non-local keys to remote parents
-                        if let parentHex = parentHex, normalized != parentHex {
-                            remoteParents.insert(normalized)
-                        } else if parentHex == nil {
+                        // Add non-local keys to remote parents (excluding our own children)
+                        let isLocalChild = childKeys.contains(normalized)
+                        let isLocalParent = parentHex != nil && normalized == parentHex
+                        if !isLocalChild && !isLocalParent {
                             remoteParents.insert(normalized)
                         }
                     }
@@ -318,14 +329,21 @@ actor SyncCoordinator {
             logger.debug("Failed to get groups for subscription: \(error.localizedDescription, privacy: .public)")
         }
 
-        logger.debug("   Returning \(groupNostrKeys.count) group Nostr key(s), \(remoteParents.count) remote parent(s)")
+        logger.debug("   Returning \(groupNostrKeys.count) group Nostr key(s), \(remoteParents.count) remote parent(s), \(childKeys.count) child key(s)")
 
         return (parentHex, childKeys, remoteParents, groupNostrKeys)
     }
 
     private func localChildPublicKeys() -> [NostrSDK.PublicKey] {
-        // Children no longer have Nostr keys - only parent needs to receive welcomes
-        // Return empty array since welcome subscriptions will be handled via parent key
-        return []
+        // Get child Nostr public keys for welcome message subscriptions
+        guard let profiles = try? profileStore.fetchProfiles() else {
+            return []
+        }
+        return profiles.compactMap { profile -> NostrSDK.PublicKey? in
+            guard let keyPair = try? keyStore.fetchKeyPair(role: .child(id: profile.id)) else {
+                return nil
+            }
+            return try? NostrSDK.PublicKey.parse(publicKey: keyPair.publicKeyHex)
+        }
     }
 }

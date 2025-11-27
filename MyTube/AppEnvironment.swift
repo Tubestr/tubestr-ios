@@ -45,6 +45,7 @@ final class AppEnvironment: ObservableObject {
     let groupMembershipCoordinator: any GroupMembershipCoordinating
     let reportStore: ReportStore
     let reportCoordinator: ReportCoordinator
+    let childKeyBackupService: ChildKeyBackupService
     let backendClient: BackendClient
     let storageConfigurationStore: StorageConfigurationStore
     let safetyConfigurationStore: SafetyConfigurationStore
@@ -103,6 +104,7 @@ final class AppEnvironment: ObservableObject {
         groupMembershipCoordinator: any GroupMembershipCoordinating,
         reportStore: ReportStore,
         reportCoordinator: ReportCoordinator,
+        childKeyBackupService: ChildKeyBackupService,
         backendClient: BackendClient,
         storageConfigurationStore: StorageConfigurationStore,
         safetyConfigurationStore: SafetyConfigurationStore,
@@ -151,6 +153,7 @@ final class AppEnvironment: ObservableObject {
         self.groupMembershipCoordinator = groupMembershipCoordinator
         self.reportStore = reportStore
         self.reportCoordinator = reportCoordinator
+        self.childKeyBackupService = childKeyBackupService
         self.backendClient = backendClient
         self.storageConfigurationStore = storageConfigurationStore
         self.safetyConfigurationStore = safetyConfigurationStore
@@ -279,6 +282,7 @@ enum StorageModeError: Error {
             mdkActor: mdkActor,
             keyStore: keyStore,
             cryptoService: cryptoService,
+            profileStore: profileStore,
             parentProfileStore: parentProfileStore,
             childProfileStore: childProfileStore,
             likeStore: likeStore,
@@ -290,7 +294,6 @@ enum StorageModeError: Error {
         let likePublisher = LikePublisher(
             marmotShareService: marmotShareService,
             keyStore: keyStore,
-            childProfileStore: childProfileStore,
             remoteVideoStore: remoteVideoStore
         )
         let legacyDefault = "http://127.0.0.1:8080"
@@ -370,6 +373,13 @@ enum StorageModeError: Error {
             storagePaths: storagePaths,
             groupMembershipCoordinator: groupMembershipCoordinator
         )
+        let childKeyBackupService = ChildKeyBackupService(
+            identityManager: identityManager,
+            keyStore: keyStore,
+            profileStore: profileStore,
+            nostrClient: nostrClient,
+            relayDirectory: relayDirectory
+        )
 
         let activeProfile = (try? profileStore.fetchProfiles().first) ?? ProfileModel.placeholder()
 
@@ -411,6 +421,7 @@ enum StorageModeError: Error {
             groupMembershipCoordinator: groupMembershipCoordinator,
             reportStore: reportStore,
             reportCoordinator: reportCoordinator,
+            childKeyBackupService: childKeyBackupService,
             backendClient: backendClient,
             storageConfigurationStore: storageConfigurationStore,
             safetyConfigurationStore: safetyConfigurationStore,
