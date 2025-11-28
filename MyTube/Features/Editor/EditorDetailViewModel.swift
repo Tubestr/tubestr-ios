@@ -401,7 +401,11 @@ final class EditorDetailViewModel: ObservableObject {
         let composition = makeComposition()
         do {
             let screenScale = await MainActor.run { UIScreen.main.scale }
-            let item = try await environment.editRenderer.makePreviewPlayerItem(for: composition, screenScale: screenScale)
+            let item = try await environment.editRenderer.makePreviewPlayerItem(
+                for: composition,
+                screenScale: screenScale,
+                filterName: selectedFilterID
+            )
             previewPlayerItem = item
             compositionDuration = composition.clipDuration.seconds
         } catch {

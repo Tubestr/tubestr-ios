@@ -30,52 +30,54 @@ struct EditorDetailView: View {
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
 
-        ZStack {
-            palette.backgroundGradient.ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack {
+                palette.backgroundGradient.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
+                VStack(spacing: 0) {
+                    header(in: geometry)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 18)
+
+                    preview(in: geometry)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 18)
+
+                    VStack(spacing: 16) {
+                        toolPicker
+                        ScrollView(showsIndicators: false) {
+                            toolContent
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.bottom, 32)
+                        }
+                    }
+                    .frame(height: min(geometry.size.height * 0.35, 280))
                     .padding(.horizontal, 24)
-                    .padding(.top, 18)
+                }
+                .padding(.bottom, 20)
 
-                preview
-                    .padding(.horizontal, 24)
-                    .padding(.top, 18)
-
-                VStack(spacing: 20) {
-                    toolPicker
-                    ScrollView(showsIndicators: false) {
-                        toolContent
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.bottom, 32)
+                if let message = viewModel.errorMessage {
+                    VStack {
+                        Text(message)
+                            .font(.footnote.bold())
+                            .padding()
+                            .background(Color.red.opacity(0.85), in: Capsule())
+                            .padding(.top, 40)
+                        Spacer()
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-            }
-            .padding(.bottom, 20)
-
-            if let message = viewModel.errorMessage {
-                VStack {
-                    Text(message)
-                        .font(.footnote.bold())
-                        .padding()
-                        .background(Color.red.opacity(0.85), in: Capsule())
-                        .padding(.top, 40)
-                    Spacer()
+                if showExportBanner {
+                    VStack {
+                        ExportedToast()
+                            .padding(.top, 40)
+                        Spacer()
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-            }
-            if showExportBanner {
-                VStack {
-                    ExportedToast()
-                        .padding(.top, 40)
-                    Spacer()
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
 
-            if viewModel.isScanning {
-                scanningOverlay
+                if viewModel.isScanning {
+                    scanningOverlay
+                }
             }
         }
         .foregroundStyle(.white)
@@ -148,9 +150,10 @@ struct EditorDetailView: View {
 }
 
 private extension EditorDetailView {
-    var header: some View {
+    func header(in geometry: GeometryProxy) -> some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
-        return HStack(spacing: 16) {
+        let isCompact = geometry.size.width < 500
+        return HStack(spacing: isCompact ? 10 : 16) {
             Button {
                 player.pause()
                 dismiss()
@@ -167,6 +170,7 @@ private extension EditorDetailView {
                     .foregroundStyle(palette.accent)
                 Text(viewModel.video.title)
                     .font(.caption)
+                    .lineLimit(1)
                     .foregroundStyle(.primary)
             }
 
@@ -176,23 +180,7 @@ private extension EditorDetailView {
                 ProgressView()
                     .tint(palette.accent)
             } else {
-                Button {
-                    viewModel.requestExport()
-                } label: {
-                    Label("Export", systemImage: "arrow.up.circle.fill")
-                        .font(.headline)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 18)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(
-                                    LinearGradient(colors: [palette.accent, palette.accentSecondary], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                )
-                        )
-                        .foregroundStyle(Color.white)
-                        .shadow(color: palette.accent.opacity(0.25), radius: 8, y: 5)
-                }
-                .disabled(!viewModel.isReady || viewModel.isPreviewLoading)
+                exportButton(isCompact: isCompact, palette: palette)
             }
 
             Button {
@@ -204,6 +192,40 @@ private extension EditorDetailView {
             }
             .disabled(viewModel.isDeleting)
             .buttonStyle(.plain)
+        }
+        .frame(height: 50)
+    }
+
+    @ViewBuilder
+    func exportButton(isCompact: Bool, palette: KidPalette) -> some View {
+        if isCompact {
+            Button {
+                viewModel.requestExport()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(KidCircleIconButtonStyle())
+            .disabled(!viewModel.isReady || viewModel.isPreviewLoading)
+        } else {
+            Button {
+                viewModel.requestExport()
+            } label: {
+                Label("Export", systemImage: "arrow.up.circle.fill")
+                    .font(.headline)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(
+                                LinearGradient(colors: [palette.accent, palette.accentSecondary], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            )
+                    )
+                    .foregroundStyle(Color.white)
+                    .shadow(color: palette.accent.opacity(0.25), radius: 8, y: 5)
+            }
+            .disabled(!viewModel.isReady || viewModel.isPreviewLoading)
         }
     }
 
@@ -230,8 +252,35 @@ private extension EditorDetailView {
         .transition(.opacity)
     }
 
-    var preview: some View {
-        VStack(spacing: 18) {
+    func preview(in geometry: GeometryProxy) -> some View {
+        // Calculate available space for video preview
+        let horizontalPadding: CGFloat = 48 + 40 // outer padding + card padding
+        let availableWidth = geometry.size.width - horizontalPadding
+
+        // Estimate space taken by header, tools section, and padding
+        let headerHeight: CGFloat = 50 + 18 // header + top padding
+        let toolsHeight = min(geometry.size.height * 0.35, 280)
+        let verticalPadding: CGFloat = 18 + 20 + 40 + 80 // top padding + bottom padding + card padding + scrubber
+        let availableHeight = geometry.size.height - headerHeight - toolsHeight - verticalPadding
+
+        let aspectRatio = max(viewModel.sourceAspectRatio, 0.1)
+
+        // Calculate optimal size maintaining aspect ratio
+        let heightForWidth = availableWidth / aspectRatio
+        let widthForHeight = availableHeight * aspectRatio
+
+        let (videoWidth, videoHeight): (CGFloat, CGFloat)
+        if heightForWidth <= availableHeight {
+            // Width-constrained: use full width
+            videoWidth = availableWidth
+            videoHeight = heightForWidth
+        } else {
+            // Height-constrained: use full height
+            videoWidth = min(widthForHeight, availableWidth)
+            videoHeight = availableHeight
+        }
+
+        return VStack(spacing: 18) {
             ZStack {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(Color.black.opacity(0.9))
@@ -274,8 +323,7 @@ private extension EditorDetailView {
                     .padding(18)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .aspectRatio(max(viewModel.sourceAspectRatio, 0.1), contentMode: .fit)
+            .frame(width: max(videoWidth, 200), height: max(videoHeight, 150))
 
             playbackScrubber
         }

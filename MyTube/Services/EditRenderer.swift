@@ -24,6 +24,7 @@ final class EditRenderer {
     private let storagePaths: StoragePaths
     private let queue = DispatchQueue(label: "com.mytube.editrenderer")
     private let filterContext = CIContext(options: nil)
+    private let previewFilterContext = CIContext(options: nil)
 
     init(storagePaths: StoragePaths) {
         self.storagePaths = storagePaths
@@ -107,12 +108,33 @@ final class EditRenderer {
         }
     }
 
-    func makePreviewPlayerItem(for composition: EditComposition, screenScale: CGFloat) async throws -> AVPlayerItem {
+    func makePreviewPlayerItem(
+        for composition: EditComposition,
+        screenScale: CGFloat,
+        filterName: String? = nil
+    ) async throws -> AVPlayerItem {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
                     let context = try self.makeVideoLabContext(for: composition, screenScale: screenScale)
                     let item = context.videoLab.makePlayerItem()
+
+                    // Apply real-time filter if specified
+                    if let filterName = filterName, !filterName.isEmpty {
+                        let asset = item.asset
+                        let ciContext = self.previewFilterContext
+                        let videoComposition = AVVideoComposition(asset: asset) { request in
+                            let source = request.sourceImage.clampedToExtent()
+                            if let filtered = FilterPipeline.apply(filterName: filterName, to: source) {
+                                let output = filtered.cropped(to: request.sourceImage.extent)
+                                request.finish(with: output, context: ciContext)
+                            } else {
+                                request.finish(with: request.sourceImage, context: ciContext)
+                            }
+                        }
+                        item.videoComposition = videoComposition
+                    }
+
                     continuation.resume(returning: item)
                 } catch {
                     continuation.resume(throwing: error)
