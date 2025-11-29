@@ -22,6 +22,7 @@ final class EditorDetailViewModel: ObservableObject {
         case text
     }
 
+
     struct EffectControl: Identifiable {
         let id: VideoEffectKind
         let displayName: String
@@ -48,6 +49,27 @@ final class EditorDetailViewModel: ObservableObject {
             iconName: "sun.max.fill",
             range: -0.5...0.5,
             defaultValue: 0
+        ),
+        EffectControl(
+            id: .saturation,
+            displayName: "Color",
+            iconName: "paintpalette.fill",
+            range: 0...2,
+            defaultValue: 1
+        ),
+        EffectControl(
+            id: .contrast,
+            displayName: "Contrast",
+            iconName: "circle.lefthalf.filled",
+            range: 0.5...1.5,
+            defaultValue: 1
+        ),
+        EffectControl(
+            id: .pixelate,
+            displayName: "Pixelate",
+            iconName: "square.grid.3x3.fill",
+            range: 1...50,
+            defaultValue: 1
         )
     ]
 
@@ -56,13 +78,71 @@ final class EditorDetailViewModel: ObservableObject {
     @Published private(set) var endTime: Double
     @Published private(set) var trimmedDuration: Double
     @Published private(set) var selectedSticker: StickerAsset?
+    @Published var stickerTransform: StickerTransform = StickerTransform()
     @Published private(set) var selectedMusic: MusicAsset?
+    @Published var musicVolume: Float = 0.8
+    @Published private(set) var isPreviewingMusic = false
+    @Published private(set) var previewingTrackId: String?
+    private var previewPlayer: AVAudioPlayer?
     @Published var overlayText: String = "" {
         didSet {
             guard hasPrepared else { return }
             schedulePreviewRebuild(delay: 250_000_000)
         }
     }
+    @Published var textFont: String = "Avenir-Heavy" {
+        didSet {
+            guard hasPrepared else { return }
+            schedulePreviewRebuild()
+        }
+    }
+    @Published var textSize: CGFloat = 48 {
+        didSet {
+            guard hasPrepared else { return }
+            schedulePreviewRebuild()
+        }
+    }
+    @Published var textColor: Color = .white {
+        didSet {
+            guard hasPrepared else { return }
+            schedulePreviewRebuild()
+        }
+    }
+    @Published var textPosition: TextPosition = .bottom {
+        didSet {
+            guard hasPrepared else { return }
+            schedulePreviewRebuild()
+        }
+    }
+
+    /// Text position presets for kid-friendly placement
+    enum TextPosition: String, CaseIterable {
+        case top = "Top"
+        case center = "Center"
+        case bottom = "Bottom"
+
+        var yOffset: CGFloat {
+            switch self {
+            case .top: return 150
+            case .center: return 960
+            case .bottom: return 1700
+            }
+        }
+    }
+
+    /// Kid-friendly fonts that render well on video
+    static let availableFonts = [
+        "Avenir-Heavy",
+        "Avenir-Medium",
+        "Futura-Bold",
+        "Marker Felt",
+        "Chalkboard SE"
+    ]
+
+    /// Bright, fun colors for text overlays
+    static let textColors: [Color] = [
+        .white, .black, .red, .blue, .green, .yellow, .orange, .purple
+    ]
     @Published var selectedFilterID: String? {
         didSet {
             guard hasPrepared else { return }
@@ -83,9 +163,11 @@ final class EditorDetailViewModel: ObservableObject {
     @Published private(set) var isPreviewLoading = false
     @Published private(set) var compositionDuration: Double = 0
     @Published private(set) var sourceAspectRatio: CGFloat = 9.0 / 16.0
+    @Published private(set) var timelineThumbnails: [UIImage] = []
     @Published private var effectValues: [VideoEffectKind: Float]
     @Published var isScanning = false
     @Published var scanProgress: String?
+    @Published private(set) var publishStep: PublishStep = .preparing
 
     let video: VideoModel
 
@@ -128,7 +210,39 @@ final class EditorDetailViewModel: ObservableObject {
         trimmedDuration = endTime - startTime
         compositionDuration = trimmedDuration
         isReady = true
+
+        // Generate timeline thumbnails in background
+        Task.detached { [weak self] in
+            await self?.generateTimelineThumbnails()
+        }
+
         await rebuildPreview()
+    }
+
+    /// Generate thumbnail strip for the timeline scrubber
+    private func generateTimelineThumbnails() async {
+        let asset = AVURLAsset(url: sourceURL)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 120, height: 120)
+
+        let duration = video.duration
+        let count = 8
+        var thumbnails: [UIImage] = []
+
+        for i in 0..<count {
+            let time = CMTime(seconds: duration * Double(i) / Double(count), preferredTimescale: 600)
+            do {
+                let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
+                thumbnails.append(UIImage(cgImage: cgImage))
+            } catch {
+                // Skip failed frames
+            }
+        }
+
+        await MainActor.run {
+            self.timelineThumbnails = thumbnails
+        }
     }
 
     func setActiveTool(_ tool: Tool) {
@@ -159,6 +273,8 @@ final class EditorDetailViewModel: ObservableObject {
             selectedSticker = nil
         } else {
             selectedSticker = sticker
+            // Reset transform when selecting a new sticker
+            stickerTransform = StickerTransform()
         }
         schedulePreviewRebuild()
     }
@@ -166,6 +282,7 @@ final class EditorDetailViewModel: ObservableObject {
     func clearSticker() {
         guard selectedSticker != nil else { return }
         selectedSticker = nil
+        stickerTransform = StickerTransform()
         schedulePreviewRebuild()
     }
 
@@ -180,8 +297,45 @@ final class EditorDetailViewModel: ObservableObject {
 
     func clearMusic() {
         guard selectedMusic != nil else { return }
+        stopMusicPreview()
         selectedMusic = nil
         schedulePreviewRebuild()
+    }
+
+    /// Preview a music track before selecting it
+    func previewMusic(_ track: MusicAsset) {
+        stopMusicPreview()
+
+        guard let url = ResourceLibrary.musicURL(for: track.id) else { return }
+
+        do {
+            previewPlayer = try AVAudioPlayer(contentsOf: url)
+            previewPlayer?.volume = 0.5
+            previewPlayer?.play()
+            isPreviewingMusic = true
+            previewingTrackId = track.id
+            HapticService.light()
+
+            // Auto-stop after 5 seconds preview
+            Task {
+                try? await Task.sleep(for: .seconds(5))
+                await MainActor.run {
+                    if previewingTrackId == track.id {
+                        stopMusicPreview()
+                    }
+                }
+            }
+        } catch {
+            print("Failed to preview music: \(error)")
+        }
+    }
+
+    /// Stop any currently playing music preview
+    func stopMusicPreview() {
+        previewPlayer?.stop()
+        previewPlayer = nil
+        isPreviewingMusic = false
+        previewingTrackId = nil
     }
 
     func effectValue(for kind: VideoEffectKind) -> Float {
@@ -238,6 +392,7 @@ final class EditorDetailViewModel: ObservableObject {
 
         isExporting = true
         errorMessage = nil
+        publishStep = .preparing
 
         Task {
             isScanning = true
@@ -248,6 +403,7 @@ final class EditorDetailViewModel: ObservableObject {
                 scanProgress = nil
             }
             do {
+                publishStep = .processing
                 let composition = makeComposition()
                 let profileId = environment.activeProfile.id
                 let screenScale = await MainActor.run { UIScreen.main.scale }
@@ -256,11 +412,14 @@ final class EditorDetailViewModel: ObservableObject {
                     profileId: profileId,
                     screenScale: screenScale
                 )
+
+                publishStep = .scanning
                 let thumbnailURL = try await environment.thumbnailer.generateThumbnail(
                     for: exportedURL,
                     profileId: profileId
                 )
 
+                publishStep = .saving
                 let request = VideoCreationRequest(
                     profileId: profileId,
                     sourceURL: exportedURL,
@@ -280,6 +439,13 @@ final class EditorDetailViewModel: ObservableObject {
                 }
                 try? FileManager.default.removeItem(at: exportedURL)
                 try? FileManager.default.removeItem(at: thumbnailURL)
+
+                publishStep = .complete
+                HapticService.success()
+                
+                // Celebration delay for confetti
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                
                 exportSuccess = true
             } catch {
                 errorMessage = error.localizedDescription
@@ -324,7 +490,22 @@ final class EditorDetailViewModel: ObservableObject {
 
         var overlays: [OverlayItem] = []
         if let sticker = selectedSticker {
-            let stickerFrame = CGRect(x: 80, y: 80, width: 300, height: 300)
+            // Use transform values to calculate sticker frame
+            // Video dimensions (assuming 9:16 portrait video at 1080p)
+            let videoWidth: CGFloat = 1080
+            let videoHeight: CGFloat = 1920
+            let baseSize: CGFloat = 300
+            let scaledSize = baseSize * stickerTransform.scale
+
+            let centerX = stickerTransform.position.x * videoWidth
+            let centerY = stickerTransform.position.y * videoHeight
+
+            let stickerFrame = CGRect(
+                x: centerX - scaledSize / 2,
+                y: centerY - scaledSize / 2,
+                width: scaledSize,
+                height: scaledSize
+            )
             overlays.append(
                 OverlayItem(
                     content: .sticker(name: sticker.id),
@@ -336,10 +517,12 @@ final class EditorDetailViewModel: ObservableObject {
         }
 
         if !overlayText.isEmpty {
+            // Scale text height based on font size
+            let textHeight = textSize * 2.5
             overlays.append(
                 OverlayItem(
-                    content: .text(overlayText, fontName: "Avenir-Heavy", color: .white),
-                    frame: CGRect(x: 120, y: 540, width: 1040, height: 140),
+                    content: .text(overlayText, fontName: textFont, color: textColor),
+                    frame: CGRect(x: 60, y: textPosition.yOffset, width: 960, height: textHeight),
                     start: .zero,
                     end: clipDuration
                 )
@@ -349,7 +532,7 @@ final class EditorDetailViewModel: ObservableObject {
         var tracks: [AudioTrack] = []
         if let music = selectedMusic {
             tracks.append(
-                AudioTrack(resourceName: music.id, startOffset: .zero, volume: 0.8)
+                AudioTrack(resourceName: music.id, startOffset: .zero, volume: musicVolume)
             )
         }
 
@@ -377,6 +560,21 @@ final class EditorDetailViewModel: ObservableObject {
             case .brightness:
                 return VideoEffect(
                     kind: .brightness,
+                    intensity: value
+                )
+            case .saturation:
+                return VideoEffect(
+                    kind: .saturation,
+                    intensity: value
+                )
+            case .contrast:
+                return VideoEffect(
+                    kind: .contrast,
+                    intensity: value
+                )
+            case .pixelate:
+                return VideoEffect(
+                    kind: .pixelate,
                     intensity: value
                 )
             }

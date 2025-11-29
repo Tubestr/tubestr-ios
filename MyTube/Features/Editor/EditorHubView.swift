@@ -51,12 +51,8 @@ struct EditorHubView: View {
                 }
             }
         }
-        .sheet(item: $activeSelection, onDismiss: viewModel.loadVideos) { selection in
+        .fullScreenCover(item: $activeSelection, onDismiss: viewModel.loadVideos) { selection in
             EditorDetailView(video: selection.video, environment: environment)
-                .presentationDetents([.fraction(0.95), .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(32)
-                .presentationSizingPageIfAvailable()
         }
         .overlay(alignment: .center) {
             if viewModel.videos.isEmpty {

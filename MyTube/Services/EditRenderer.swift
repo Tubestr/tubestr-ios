@@ -30,6 +30,58 @@ final class EditRenderer {
         self.storagePaths = storagePaths
     }
 
+    /// Applies CIFilter-based video effects (saturation, contrast, pixelate) to an image
+    private static func applyCIEffects(_ effects: [VideoEffect], to image: CIImage) -> CIImage {
+        var result = image
+
+        for effect in effects {
+            switch effect.kind {
+            case .saturation:
+                if let filter = CIFilter(name: "CIColorControls") {
+                    filter.setValue(result, forKey: kCIInputImageKey)
+                    filter.setValue(effect.intensity, forKey: kCIInputSaturationKey)
+                    if let output = filter.outputImage {
+                        result = output
+                    }
+                }
+            case .contrast:
+                if let filter = CIFilter(name: "CIColorControls") {
+                    filter.setValue(result, forKey: kCIInputImageKey)
+                    filter.setValue(effect.intensity, forKey: kCIInputContrastKey)
+                    if let output = filter.outputImage {
+                        result = output
+                    }
+                }
+            case .pixelate:
+                if let filter = CIFilter(name: "CIPixellate") {
+                    filter.setValue(result, forKey: kCIInputImageKey)
+                    // Scale: intensity 1-50 maps to 1-50 pixel scale
+                    filter.setValue(effect.intensity, forKey: kCIInputScaleKey)
+                    if let output = filter.outputImage {
+                        result = output
+                    }
+                }
+            case .zoomBlur, .brightness:
+                // These are handled by VideoLab operations
+                break
+            }
+        }
+
+        return result
+    }
+
+    /// Returns effects that should be applied via CIFilter (not VideoLab)
+    private static func ciFilterEffects(from effects: [VideoEffect]) -> [VideoEffect] {
+        effects.filter { effect in
+            switch effect.kind {
+            case .saturation, .contrast, .pixelate:
+                return true
+            case .zoomBlur, .brightness:
+                return false
+            }
+        }
+    }
+
     func exportEdit(
         _ composition: EditComposition,
         profileId: UUID,
@@ -51,9 +103,10 @@ final class EditRenderer {
                 do {
                     let context = try self.makeVideoLabContext(for: composition, screenScale: screenScale)
                     let filterName = composition.filterName?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let needsFilter = (filterName?.isEmpty == false)
+                    let ciEffects = Self.ciFilterEffects(from: composition.videoEffects)
+                    let needsPostProcessing = (filterName?.isEmpty == false) || !ciEffects.isEmpty
 
-                    let exportURL: URL = needsFilter ? self.makeTemporaryURL(extension: "mp4") : destinationURL
+                    let exportURL: URL = needsPostProcessing ? self.makeTemporaryURL(extension: "mp4") : destinationURL
 
                     guard let exportSession = context.videoLab.makeExportSession(
                         presetName: AVAssetExportPresetHighestQuality,
@@ -74,7 +127,7 @@ final class EditRenderer {
                                 #endif
                             }
 
-                            guard needsFilter, let name = filterName, !name.isEmpty else {
+                            guard needsPostProcessing else {
                                 finalize()
                                 continuation.resume(returning: destinationURL)
                                 return
@@ -82,8 +135,9 @@ final class EditRenderer {
 
                             Task.detached(priority: .userInitiated) {
                                 do {
-                                    try await self.applyFilter(
-                                        filterName: name,
+                                    try await self.applyPostProcessing(
+                                        filterName: filterName,
+                                        ciEffects: ciEffects,
                                         inputURL: exportURL,
                                         outputURL: destinationURL
                                     )
@@ -119,18 +173,32 @@ final class EditRenderer {
                     let context = try self.makeVideoLabContext(for: composition, screenScale: screenScale)
                     let item = context.videoLab.makePlayerItem()
 
-                    // Apply real-time filter if specified
-                    if let filterName = filterName, !filterName.isEmpty {
+                    // Collect CIFilter-based effects
+                    let ciEffects = Self.ciFilterEffects(from: composition.videoEffects)
+                    let hasFilter = filterName?.isEmpty == false
+                    let needsVideoComposition = hasFilter || !ciEffects.isEmpty
+
+                    // Apply real-time filter and/or CIFilter effects
+                    if needsVideoComposition {
                         let asset = item.asset
                         let ciContext = self.previewFilterContext
                         let videoComposition = AVVideoComposition(asset: asset) { request in
-                            let source = request.sourceImage.clampedToExtent()
-                            if let filtered = FilterPipeline.apply(filterName: filterName, to: source) {
-                                let output = filtered.cropped(to: request.sourceImage.extent)
-                                request.finish(with: output, context: ciContext)
-                            } else {
-                                request.finish(with: request.sourceImage, context: ciContext)
+                            var result = request.sourceImage.clampedToExtent()
+
+                            // Apply filter preset/LUT
+                            if let filterName = filterName, !filterName.isEmpty {
+                                if let filtered = FilterPipeline.apply(filterName: filterName, to: result) {
+                                    result = filtered
+                                }
                             }
+
+                            // Apply CIFilter-based effects
+                            if !ciEffects.isEmpty {
+                                result = Self.applyCIEffects(ciEffects, to: result)
+                            }
+
+                            let output = result.cropped(to: request.sourceImage.extent)
+                            request.finish(with: output, context: ciContext)
                         }
                         item.videoComposition = videoComposition
                     }
@@ -162,8 +230,15 @@ final class EditRenderer {
             timeRange: CMTimeRange(start: .zero, duration: clipRange.duration),
             source: videoSource
         )
-        if !edit.videoEffects.isEmpty {
-            baseLayer.operations = edit.videoEffects.compactMap { effect in
+        // Only VideoLab-native effects go here; saturation/contrast/pixelate use CIFilters
+        let videoLabEffects = edit.videoEffects.filter { effect in
+            switch effect.kind {
+            case .zoomBlur, .brightness: return true
+            case .saturation, .contrast, .pixelate: return false
+            }
+        }
+        if !videoLabEffects.isEmpty {
+            baseLayer.operations = videoLabEffects.compactMap { effect in
                 switch effect.kind {
                 case .zoomBlur:
                     let operation = ZoomBlur()
@@ -176,6 +251,9 @@ final class EditRenderer {
                     let operation = BrightnessAdjustment()
                     operation.brightness = effect.intensity
                     return operation
+                case .saturation, .contrast, .pixelate:
+                    // Handled by CIFilters in post-processing
+                    return nil
                 }
             }
         }
@@ -289,7 +367,12 @@ final class EditRenderer {
         return layer
     }
 
-    private func applyFilter(filterName: String, inputURL: URL, outputURL: URL) async throws {
+    private func applyPostProcessing(
+        filterName: String?,
+        ciEffects: [VideoEffect],
+        inputURL: URL,
+        outputURL: URL
+    ) async throws {
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
@@ -305,12 +388,21 @@ final class EditRenderer {
         exportSession.outputURL = outputURL
         exportSession.outputFileType = .mp4
         exportSession.videoComposition = AVVideoComposition(asset: asset) { [filterContext] request in
-            let source = request.sourceImage.clampedToExtent()
-            guard let filtered = FilterPipeline.apply(filterName: filterName, to: source) else {
-                request.finish(with: request.sourceImage, context: filterContext)
-                return
+            var result = request.sourceImage.clampedToExtent()
+
+            // Apply filter preset/LUT if specified
+            if let filterName = filterName, !filterName.isEmpty {
+                if let filtered = FilterPipeline.apply(filterName: filterName, to: result) {
+                    result = filtered
+                }
             }
-            let output = filtered.cropped(to: request.sourceImage.extent)
+
+            // Apply CIFilter-based effects (saturation, contrast, pixelate)
+            if !ciEffects.isEmpty {
+                result = Self.applyCIEffects(ciEffects, to: result)
+            }
+
+            let output = result.cropped(to: request.sourceImage.extent)
             request.finish(with: output, context: filterContext)
         }
 

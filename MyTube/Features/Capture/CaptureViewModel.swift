@@ -23,6 +23,7 @@ final class CaptureViewModel: NSObject, ObservableObject {
     @Published private(set) var currentCameraPosition: AVCaptureDevice.Position = .back
     @Published var isScanning = false
     @Published var scanProgress: String?
+    @Published private(set) var publishStep: PublishStep = .preparing
 
     let session = AVCaptureSession()
 
@@ -129,8 +130,11 @@ final class CaptureViewModel: NSObject, ObservableObject {
     func toggleRecording() {
         guard isSessionReady else {
             errorMessage = "Camera is still preparing."
+            HapticService.error()
             return
         }
+
+        HapticService.medium()
 
 #if targetEnvironment(simulator)
         if isRecording {
@@ -149,6 +153,7 @@ final class CaptureViewModel: NSObject, ObservableObject {
     }
 
     func switchCamera() {
+        HapticService.light()
 #if targetEnvironment(simulator)
         currentCameraPosition = currentCameraPosition == .back ? .front : .back
         return
@@ -177,6 +182,7 @@ final class CaptureViewModel: NSObject, ObservableObject {
     }
 
     func toggleTorch() {
+        HapticService.light()
 #if targetEnvironment(simulator)
         errorMessage = "Torch not available in the simulator."
         return
@@ -246,6 +252,7 @@ final class CaptureViewModel: NSObject, ObservableObject {
     }
 
     func focus(at devicePoint: CGPoint) {
+        HapticService.selection()
         sessionQueue.async { [weak self] in
             guard let self, let device = self.currentVideoDevice else { return }
             do {
@@ -638,6 +645,7 @@ extension CaptureViewModel: AVCaptureFileOutputRecordingDelegate {
     private func handleRecordingCompletion(at outputURL: URL) {
         Task {
             isScanning = true
+            publishStep = .preparing
             scanProgress = "Preparing scan…"
             defer {
                 isScanning = false
@@ -649,7 +657,10 @@ extension CaptureViewModel: AVCaptureFileOutputRecordingDelegate {
             let title = DateFormatter.captureFormatter.string(from: Date())
 
             do {
+                publishStep = .processing
                 let thumbnailURL = try await environment.thumbnailer.generateThumbnail(for: outputURL, profileId: profile.id)
+
+                publishStep = .scanning
                 let request = VideoCreationRequest(
                     profileId: profile.id,
                     sourceURL: outputURL,
@@ -661,6 +672,8 @@ extension CaptureViewModel: AVCaptureFileOutputRecordingDelegate {
                     faceCount: 0,
                     loudness: estimateLoudness(for: asset)
                 )
+
+                publishStep = .saving
                 _ = try await environment.videoLibrary.createVideo(request: request) { [weak self] progress in
                     Task { @MainActor in
                         self?.scanProgress = progress
@@ -668,8 +681,15 @@ extension CaptureViewModel: AVCaptureFileOutputRecordingDelegate {
                 }
                 try? FileManager.default.removeItem(at: outputURL)
                 try? FileManager.default.removeItem(at: thumbnailURL)
+
+                publishStep = .complete
+                HapticService.success()
+
+                // Brief pause to show completion, then dismiss
+                try? await Task.sleep(for: .seconds(1.5))
                 showSavedBanner = true
             } catch {
+                HapticService.error()
                 errorMessage = error.localizedDescription
             }
         }

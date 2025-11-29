@@ -10,6 +10,17 @@ import CoreGraphics
 import CoreMedia
 import SwiftUI
 
+/// Transform data for positioning stickers on the video preview.
+/// All values are normalized (0-1) for position, allowing device-independent placement.
+struct StickerTransform: Codable, Equatable, Hashable {
+    /// Normalized position (0-1) within the video frame
+    var position: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    /// Scale factor for the sticker (0.5 to 2.0)
+    var scale: CGFloat = 1.0
+    /// Rotation in degrees
+    var rotation: Double = 0
+}
+
 struct ClipSegment: Identifiable, Hashable {
     let id: UUID
     var sourceURL: URL
@@ -65,9 +76,12 @@ struct AudioTrack: Identifiable, Hashable {
     }
 }
 
-enum VideoEffectKind: String, Hashable {
+enum VideoEffectKind: String, Hashable, Codable {
     case zoomBlur
     case brightness
+    case saturation
+    case contrast
+    case pixelate
 }
 
 struct VideoEffect: Identifiable, Hashable {

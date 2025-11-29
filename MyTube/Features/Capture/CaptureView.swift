@@ -30,6 +30,7 @@ struct CaptureView: View {
                 SavedBanner()
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .onAppear {
+                        HapticService.success()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                             withAnimation {
                                 viewModel.showSavedBanner = false
@@ -40,11 +41,20 @@ struct CaptureView: View {
 
             if let error = viewModel.errorMessage {
                 ErrorBanner(message: error)
-                    .onTapGesture { viewModel.errorMessage = nil }
+                    .onTapGesture {
+                        HapticService.light()
+                        viewModel.errorMessage = nil
+                    }
+                    .onAppear {
+                        HapticService.error()
+                    }
             }
 
             if viewModel.isScanning {
-                scanningOverlay
+                PublishProgressOverlay(
+                    currentStep: viewModel.publishStep,
+                    accentColor: .blue
+                )
             }
 
             if !viewModel.isSessionReady {
@@ -101,29 +111,6 @@ struct CaptureView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var scanningOverlay: some View {
-        VStack {
-            Spacer()
-            HStack(spacing: 12) {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(.white)
-                Text(viewModel.scanProgress ?? "Scanning for safety…")
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
-            )
-            .padding(.bottom, 32)
-        }
-        .transition(.opacity)
-    }
 }
 
 private struct RecordingIndicator: View {

@@ -20,8 +20,6 @@ struct EditorDetailView: View {
     @State private var timeObserver: Any?
     @State private var showDeleteConfirm = false
     @State private var isScrubbing = false
-    @State private var showExportBanner = false
-    @State private var exportBannerTask: Task<Void, Never>?
 
     init(video: VideoModel, environment: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: EditorDetailViewModel(video: video, environment: environment))
@@ -29,59 +27,61 @@ struct EditorDetailView: View {
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
-
+        
         GeometryReader { geometry in
-            ZStack {
+            ZStack(alignment: .bottom) {
+                // 1. Background
                 palette.backgroundGradient.ignoresSafeArea()
 
+                // 2. Main Content
                 VStack(spacing: 0) {
-                    header(in: geometry)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 18)
+                    // Header
+                    header
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .zIndex(10)
 
-                    preview(in: geometry)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 18)
+                    // Middle Area (Preview + Sidebar)
+                    HStack(spacing: 0) {
+                        // Preview Area
+                        previewArea(in: geometry)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .clipped()
 
-                    VStack(spacing: 16) {
-                        toolPicker
-                        ScrollView(showsIndicators: false) {
-                            toolContent
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.bottom, 32)
-                        }
+                        // Right Sidebar
+                        sidebarTools
+                            .padding(.trailing, 16)
+                            .padding(.leading, 8)
                     }
-                    .frame(height: min(geometry.size.height * 0.35, 280))
-                    .padding(.horizontal, 24)
-                }
-                .padding(.bottom, 20)
 
+                    // Bottom Tool Area
+                    toolPanel
+                        .frame(height: 260)
+                        .background(Color.white.opacity(0.6))
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 5)
+                }
+                
+                // 3. Overlays (Toasts, etc)
                 if let message = viewModel.errorMessage {
-                    VStack {
-                        Text(message)
-                            .font(.footnote.bold())
-                            .padding()
-                            .background(Color.red.opacity(0.85), in: Capsule())
-                            .padding(.top, 40)
-                        Spacer()
-                    }
-                }
-                if showExportBanner {
-                    VStack {
-                        ExportedToast()
-                            .padding(.top, 40)
-                        Spacer()
-                    }
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    errorToast(message)
                 }
 
-                if viewModel.isScanning {
-                    scanningOverlay
+                // Unified Progress Overlay (handles export & success/confetti)
+                // We keep it visible if scanning OR if we just finished (exportSuccess)
+                if viewModel.isScanning || viewModel.exportSuccess {
+                    PublishProgressOverlay(
+                        currentStep: viewModel.exportSuccess ? .complete : viewModel.publishStep,
+                        accentColor: palette.accent
+                    )
+                    .transition(.opacity)
                 }
             }
         }
-        .foregroundStyle(.white)
-        .tint(.accentColor)
+        .tint(palette.accent)
         .onAppear(perform: configurePlayer)
         .onDisappear(perform: teardownPlayer)
         .onChange(of: viewModel.compositionDuration) { duration in
@@ -94,37 +94,22 @@ struct EditorDetailView: View {
             replacePlayerItem(with: item)
         }
         .onChange(of: viewModel.exportSuccess) { success in
-            guard success else { return }
-            player.pause()
-            isPlaying = false
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
-                showExportBanner = true
-            }
-            exportBannerTask?.cancel()
-            exportBannerTask = Task { [dismiss] in
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
-                await MainActor.run {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        showExportBanner = false
+            if success {
+                // Small delay to ensure the overlay transition is smooth before dismissal
+                Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    await MainActor.run {
+                        viewModel.acknowledgeExport()
+                        dismiss()
                     }
-                    viewModel.acknowledgeExport()
-                    dismiss()
                 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
-            guard let item = notification.object as? AVPlayerItem,
-                  item == player.currentItem else { return }
-            player.seek(to: .zero)
-            playhead = 0
-            if isPlaying {
-                player.play()
-            }
+            handlePlaybackEnd(notification)
         }
         .onChange(of: viewModel.deleteSuccess) { success in
-            if success {
-                dismiss()
-            }
+            if success { dismiss() }
         }
         .confirmationDialog(
             "Delete Video",
@@ -140,284 +125,222 @@ struct EditorDetailView: View {
             Text("This will remove the video and its edits from MyTube.")
         }
         .onDisappear {
-            exportBannerTask?.cancel()
-            exportBannerTask = nil
             if viewModel.exportSuccess {
                 viewModel.acknowledgeExport()
             }
         }
+        .statusBar(hidden: true)
     }
 }
 
-private extension EditorDetailView {
-    func header(in geometry: GeometryProxy) -> some View {
+// MARK: - Components
+extension EditorDetailView {
+    
+    var header: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
-        let isCompact = geometry.size.width < 500
-        return HStack(spacing: isCompact ? 10 : 16) {
+        return HStack {
             Button {
                 player.pause()
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 38, height: 38)
-            }
-            .buttonStyle(KidCircleIconButtonStyle())
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Remix")
-                    .font(.title3.bold())
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(palette.accent)
-                Text(viewModel.video.title)
-                    .font(.caption)
-                    .lineLimit(1)
-                    .foregroundStyle(.primary)
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.8), in: Circle())
             }
-
+            
             Spacer()
-
+            
             if viewModel.isExporting {
                 ProgressView()
                     .tint(palette.accent)
             } else {
-                exportButton(isCompact: isCompact, palette: palette)
+                Button {
+                    viewModel.requestExport()
+                } label: {
+                    Text("Export")
+                        .font(.headline)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(palette.accent)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+                .disabled(!viewModel.isReady || viewModel.isPreviewLoading)
+                .opacity((!viewModel.isReady || viewModel.isPreviewLoading) ? 0.5 : 1)
             }
-
-            Button {
-                showDeleteConfirm = true
-            } label: {
-                Image(systemName: "trash.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(palette.error)
-            }
-            .disabled(viewModel.isDeleting)
-            .buttonStyle(.plain)
         }
         .frame(height: 50)
     }
-
-    @ViewBuilder
-    func exportButton(isCompact: Bool, palette: KidPalette) -> some View {
-        if isCompact {
-            Button {
-                viewModel.requestExport()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 24, weight: .semibold))
-                    .frame(width: 38, height: 38)
-            }
-            .buttonStyle(KidCircleIconButtonStyle())
-            .disabled(!viewModel.isReady || viewModel.isPreviewLoading)
-        } else {
-            Button {
-                viewModel.requestExport()
-            } label: {
-                Label("Export", systemImage: "arrow.up.circle.fill")
-                    .font(.headline)
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 18)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(
-                                LinearGradient(colors: [palette.accent, palette.accentSecondary], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            )
-                    )
-                    .foregroundStyle(Color.white)
-                    .shadow(color: palette.accent.opacity(0.25), radius: 8, y: 5)
-            }
-            .disabled(!viewModel.isReady || viewModel.isPreviewLoading)
-        }
-    }
-
-    var scanningOverlay: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        return VStack {
-            Spacer()
-            HStack(spacing: 12) {
-                ProgressView()
-                    .tint(palette.accent)
-                Text(viewModel.scanProgress ?? "Scanning export for safety…")
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(palette.cardStroke, lineWidth: 1)
-            )
-            .padding(.bottom, 30)
-        }
-        .transition(.opacity)
-    }
-
-    func preview(in geometry: GeometryProxy) -> some View {
-        // Calculate available space for video preview
-        let horizontalPadding: CGFloat = 48 + 40 // outer padding + card padding
-        let availableWidth = geometry.size.width - horizontalPadding
-
-        // Estimate space taken by header, tools section, and padding
-        let headerHeight: CGFloat = 50 + 18 // header + top padding
-        let toolsHeight = min(geometry.size.height * 0.35, 280)
-        let verticalPadding: CGFloat = 18 + 20 + 40 + 80 // top padding + bottom padding + card padding + scrubber
-        let availableHeight = geometry.size.height - headerHeight - toolsHeight - verticalPadding
-
-        let aspectRatio = max(viewModel.sourceAspectRatio, 0.1)
-
-        // Calculate optimal size maintaining aspect ratio
-        let heightForWidth = availableWidth / aspectRatio
-        let widthForHeight = availableHeight * aspectRatio
-
-        let (videoWidth, videoHeight): (CGFloat, CGFloat)
-        if heightForWidth <= availableHeight {
-            // Width-constrained: use full width
-            videoWidth = availableWidth
-            videoHeight = heightForWidth
-        } else {
-            // Height-constrained: use full height
-            videoWidth = min(widthForHeight, availableWidth)
-            videoHeight = availableHeight
-        }
-
-        return VStack(spacing: 18) {
+    
+    func previewArea(in geometry: GeometryProxy) -> some View {
+        // Calculate optimal size maintaining aspect ratio within available space
+        
+        GeometryReader { geo in
+            let availableWidth = geo.size.width
+            let availableHeight = geo.size.height
+            let aspectRatio = max(viewModel.sourceAspectRatio, 0.1)
+            
+            let heightForWidth = availableWidth / aspectRatio
+            let widthForHeight = availableHeight * aspectRatio
+            
+            let (videoWidth, videoHeight): (CGFloat, CGFloat) = {
+                if heightForWidth <= availableHeight {
+                    return (availableWidth, heightForWidth)
+                } else {
+                    return (widthForHeight, availableHeight)
+                }
+            }()
+            
             ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(Color.black.opacity(0.9))
-                    .overlay(
-                        VideoPlayer(player: player)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .clipped()
-                            .cornerRadius(24)
+                // Video Layer
+                VideoPlayer(player: player)
+                    .frame(width: videoWidth, height: videoHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
+                
+                // Interactive Overlays
+                if let sticker = viewModel.selectedSticker {
+                    StickerOverlayView(
+                        sticker: sticker,
+                        transform: $viewModel.stickerTransform,
+                        containerSize: CGSize(width: videoWidth, height: videoHeight)
                     )
-                    .shadow(radius: 20)
-
+                    .frame(width: videoWidth, height: videoHeight)
+                }
+                
+                // Loading / Play State
                 if viewModel.isPreviewLoading {
                     ProgressView()
                         .progressViewStyle(.circular)
                         .tint(.white)
-                } else {
+                        .shadow(radius: 2)
+                } else if viewModel.selectedSticker == nil {
                     Button(action: togglePlayback) {
                         Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 60))
-                            .foregroundStyle(.white.opacity(0.9))
+                            .font(.system(size: 64))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .shadow(color: .black.opacity(0.3), radius: 10)
                     }
+                    .opacity(isPlaying ? 0 : 1) // Hide when playing
                 }
-
+                
+                // Time & Filter Badges
                 VStack {
                     Spacer()
                     HStack {
                         Label(timeString(for: playhead), systemImage: "clock")
                             .font(.caption.monospacedDigit())
-                            .padding(10)
+                            .padding(8)
                             .background(.ultraThinMaterial, in: Capsule())
+                            .foregroundStyle(.primary)
+                        
                         Spacer()
+                        
                         if let filter = viewModel.selectedFilterID {
                             Text(filterDisplayName(for: filter))
                                 .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.white.opacity(0.15), in: Capsule())
+                                .padding(8)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .foregroundStyle(.primary)
                         }
                     }
-                    .padding(18)
+                    .padding(12)
                 }
+                .frame(width: videoWidth, height: videoHeight)
             }
-            .frame(width: max(videoWidth, 200), height: max(videoHeight, 150))
-
-            playbackScrubber
+            .frame(width: availableWidth, height: availableHeight, alignment: .center)
         }
-        .padding(20)
-        .kidCardBackground()
     }
-
-    var playbackScrubber: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Playback")
-                .font(.subheadline.bold())
-            Slider(
-                value: Binding(
-                    get: { playhead },
-                    set: { newValue in
-                        playhead = newValue
-                    }
-                ),
-                in: 0...max(viewModel.compositionDuration, 0.01),
-                onEditingChanged: handlePlaybackScrub
-            )
-            .tint(appEnvironment.activeProfile.theme.kidPalette.accent)
-            HStack {
-                Text(timeString(for: 0))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(timeString(for: viewModel.compositionDuration))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 4)
-    }
-
-    var toolPicker: some View {
+    
+    var sidebarTools: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
-        return HStack(spacing: 14) {
+        return VStack(spacing: 24) {
             ForEach(EditorDetailViewModel.Tool.allCases, id: \.self) { tool in
-                let isActive = tool == viewModel.activeTool
+                let isActive = viewModel.activeTool == tool
                 Button {
+                    HapticService.selection()
                     viewModel.setActiveTool(tool)
                 } label: {
                     VStack(spacing: 6) {
                         Image(systemName: tool.iconName)
-                            .font(.system(size: 18, weight: .medium))
+                            .font(.system(size: 20, weight: .medium))
+                            .frame(width: 48, height: 48)
+                            .background(
+                                Circle()
+                                    .fill(isActive ? palette.accent : Color.white)
+                                    .shadow(color: palette.accent.opacity(0.15), radius: 8, y: 4)
+                            )
+                            .foregroundStyle(isActive ? .white : palette.accent)
+                        
                         Text(tool.displayTitle)
                             .font(.caption2.bold())
+                            .foregroundStyle(palette.accent)
+                            .shadow(color: .white.opacity(0.5), radius: 2, x: 0, y: 1)
                     }
-                    .foregroundStyle(isActive ? Color.white : palette.accent)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.white.opacity(0.55))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(LinearGradient(colors: [palette.accent, palette.accentSecondary], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                    .opacity(isActive ? 1 : 0)
-                            )
-                    )
                 }
-                .buttonStyle(.plain)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isActive ? Color.clear : palette.cardStroke, lineWidth: 1)
-                )
-                .shadow(color: palette.accent.opacity(isActive ? 0.2 : 0.05), radius: isActive ? 8 : 2, y: isActive ? 6 : 2)
+            }
+            Spacer()
+            
+            // Delete Button at bottom of sidebar
+            Button {
+                showDeleteConfirm = true
+            } label: {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.red)
+                    .frame(width: 48, height: 48)
+                    .background(Color.white, in: Circle())
+                    .shadow(color: Color.black.opacity(0.1), radius: 5)
             }
         }
     }
-
-    @ViewBuilder
-    var toolContent: some View {
-        switch viewModel.activeTool {
-        case .trim:
-            TrimTool(
-                start: viewModel.startTime,
-                end: viewModel.endTime,
-                duration: viewModel.video.duration,
-                updateStart: viewModel.updateStartTime,
-                updateEnd: viewModel.updateEndTime
-            )
-        case .effects:
-            EffectsTool(viewModel: viewModel)
-        case .overlays:
-            OverlaysTool(viewModel: viewModel)
-        case .audio:
-            AudioTool(viewModel: viewModel)
-        case .text:
-            TextTool(viewModel: viewModel)
+    
+    var toolPanel: some View {
+        VStack(spacing: 0) {
+            switch viewModel.activeTool {
+            case .trim:
+                TrimTool(
+                    start: viewModel.startTime,
+                    end: viewModel.endTime,
+                    duration: viewModel.video.duration,
+                    playhead: $playhead,
+                    compositionDuration: viewModel.compositionDuration,
+                    thumbnails: viewModel.timelineThumbnails,
+                    updateStart: viewModel.updateStartTime,
+                    updateEnd: viewModel.updateEndTime,
+                    onScrub: handlePlaybackScrub
+                )
+            case .effects:
+                EffectsTool(viewModel: viewModel)
+            case .overlays:
+                OverlaysTool(viewModel: viewModel)
+            case .audio:
+                AudioTool(viewModel: viewModel)
+            case .text:
+                TextTool(viewModel: viewModel)
+            }
         }
     }
+    
+    func errorToast(_ message: String) -> some View {
+        VStack {
+            Text(message)
+                .font(.footnote.bold())
+                .foregroundStyle(.white)
+                .padding()
+                .background(Color.red.opacity(0.9), in: Capsule())
+                .padding(.top, 60)
+                .shadow(radius: 10)
+            Spacer()
+        }
+        .onAppear { HapticService.error() }
+    }
+}
 
+// MARK: - Logic
+extension EditorDetailView {
     func configurePlayer() {
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(value: 1, timescale: 30),
@@ -450,6 +373,10 @@ private extension EditorDetailView {
         if isPlaying {
             player.pause()
         } else {
+            if playhead >= viewModel.compositionDuration {
+                player.seek(to: .zero)
+                playhead = 0
+            }
             player.play()
         }
         isPlaying.toggle()
@@ -458,10 +385,12 @@ private extension EditorDetailView {
     func handlePlaybackScrub(_ editing: Bool) {
         isScrubbing = editing
         if editing {
+            HapticService.selection()
             wasPlayingBeforeScrub = isPlaying
             player.pause()
             isPlaying = false
         } else {
+            HapticService.light()
             let time = CMTime(seconds: playhead, preferredTimescale: 600)
             player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
             if wasPlayingBeforeScrub {
@@ -469,6 +398,22 @@ private extension EditorDetailView {
                 isPlaying = true
             }
             wasPlayingBeforeScrub = false
+        }
+    }
+    
+    func handlePlaybackEnd(_ notification: Notification) {
+        guard let item = notification.object as? AVPlayerItem,
+              item == player.currentItem else { return }
+        player.seek(to: .zero)
+        playhead = 0
+        if isPlaying {
+            player.play()
+        }
+    }
+    
+    func cleanup() {
+        if viewModel.exportSuccess {
+            viewModel.acknowledgeExport()
         }
     }
 
@@ -484,52 +429,92 @@ private extension EditorDetailView {
     }
 }
 
+// MARK: - Subviews
 private struct TrimTool: View {
     let start: Double
     let end: Double
     let duration: Double
+    @Binding var playhead: Double
+    let compositionDuration: Double
+    let thumbnails: [UIImage]
     let updateStart: (Double) -> Void
     let updateEnd: (Double) -> Void
+    let onScrub: (Bool) -> Void
+    
     @EnvironmentObject private var appEnvironment: AppEnvironment
 
     private let minimumGap: Double = 2.0
-
-    private var startRange: ClosedRange<Double> {
-        0...max(end - minimumGap, 0)
-    }
-
-    private var endRange: ClosedRange<Double> {
-        min(start + minimumGap, duration)...duration
-    }
+    private var startRange: ClosedRange<Double> { 0...max(end - minimumGap, 0) }
+    private var endRange: ClosedRange<Double> { min(start + minimumGap, duration)...duration }
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
+            
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Start")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(timeString(start))
-                        .font(.title3.bold())
+                Text("Trim Video")
+                    .font(.headline)
+                    .foregroundStyle(palette.accent)
+                Spacer()
+                Text(timeString(compositionDuration))
+                    .font(.subheadline.monospacedDigit().bold())
+                    .foregroundStyle(palette.accent)
+            }
+            
+            // Scrubber
+            VStack(spacing: 8) {
+                // Thumbnail Strip
+                if !thumbnails.isEmpty {
+                    GeometryReader { geo in
+                        HStack(spacing: 0) {
+                            ForEach(thumbnails.indices, id: \.self) { index in
+                                Image(uiImage: thumbnails[index])
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: geo.size.width / CGFloat(thumbnails.count))
+                                    .clipped()
+                            }
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            // Playhead
+                            Rectangle()
+                                .fill(palette.accent)
+                                .frame(width: 3)
+                                .shadow(radius: 1)
+                                .offset(x: (playhead / max(compositionDuration, 0.1)) * geo.size.width - (geo.size.width / 2))
+                        )
+                    }
+                    .frame(height: 50)
+                    .shadow(color: .black.opacity(0.1), radius: 2)
                 }
-                Slider(value: Binding(get: { start }, set: updateStart), in: startRange)
-                    .tint(palette.accent)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("End")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(timeString(end))
-                        .font(.title3.bold())
-                }
-                Slider(value: Binding(get: { end }, set: updateEnd), in: endRange)
+                
+                Slider(value: $playhead, in: 0...max(compositionDuration, 0.01), onEditingChanged: onScrub)
                     .tint(palette.accent)
             }
+            
+            // Trim Sliders
+            HStack(spacing: 24) {
+                VStack(alignment: .leading) {
+                    Text("Start: \(timeString(start))")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    Slider(value: Binding(get: { start }, set: updateStart), in: startRange)
+                        .tint(palette.accent)
+                }
+                
+                VStack(alignment: .trailing) {
+                    Text("End: \(timeString(end))")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    Slider(value: Binding(get: { end }, set: updateEnd), in: endRange)
+                        .tint(palette.accent)
+                }
+            }
         }
-        .padding()
-        .kidCardBackground()
+        .padding(20)
     }
-
+    
     private func timeString(_ value: Double) -> String {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.minute, .second]
@@ -544,56 +529,57 @@ private struct EffectsTool: View {
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Filters")
-                .font(.subheadline.bold())
-
+        VStack(alignment: .leading, spacing: 16) {
+            
+            Text("Effects")
+                .font(.headline)
+                .foregroundStyle(palette.accent)
+                .padding(.horizontal, 20)
+            
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    FilterChip(
-                        title: "Original",
-                        isSelected: viewModel.selectedFilterID == nil
-                    ) {
+                    FilterChip(title: "None", isSelected: viewModel.selectedFilterID == nil) {
                         viewModel.selectedFilterID = nil
                     }
-
+                    
                     ForEach(viewModel.filters) { filter in
-                        FilterChip(
-                            title: filter.displayName,
-                            isSelected: viewModel.selectedFilterID == filter.id
-                        ) {
+                        FilterChip(title: filter.displayName, isSelected: viewModel.selectedFilterID == filter.id) {
                             viewModel.selectedFilterID = filter.id
                         }
                     }
                 }
+                .padding(.horizontal, 20)
             }
-
-            Divider().overlay(Color.white.opacity(0.2))
-
-            Text("VideoLab Effects")
-                .font(.subheadline.bold())
-
-            ForEach(viewModel.effectControls, id: \.id) { control in
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Label(control.displayName, systemImage: control.iconName)
-                            .font(.headline)
-                        Spacer()
-                        Button("Reset") {
-                            viewModel.resetEffect(control.id)
+            
+            Divider().padding(.horizontal, 20)
+            
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 16) {
+                    ForEach(viewModel.effectControls, id: \.id) { control in
+                        HStack {
+                            Image(systemName: control.iconName)
+                                .frame(width: 24)
+                                .foregroundStyle(palette.accent)
+                            Text(control.displayName)
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if abs(viewModel.binding(for: control).wrappedValue - Double(control.defaultValue)) > 0.01 {
+                                Button("Reset") { viewModel.resetEffect(control.id) }
+                                    .font(.caption)
+                                    .foregroundStyle(palette.accent)
+                            }
                         }
-                        .buttonStyle(KidSecondaryButtonStyle())
+                        
+                        Slider(value: viewModel.binding(for: control), in: control.normalizedRange)
+                            .tint(palette.accent)
                     }
-                    Slider(
-                        value: viewModel.binding(for: control),
-                        in: control.normalizedRange
-                    )
-                    .tint(palette.accent)
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
         }
-        .padding()
-        .kidCardBackground()
+        .padding(.top, 16)
     }
 }
 
@@ -604,11 +590,21 @@ private struct OverlaysTool: View {
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
         VStack(alignment: .leading, spacing: 16) {
-            Text("Stickers")
-                .font(.subheadline.bold())
-                .foregroundStyle(palette.accent)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 18) {
+            HStack {
+                Text("Stickers")
+                    .font(.headline)
+                    .foregroundStyle(palette.accent)
+                Spacer()
+                if viewModel.selectedSticker != nil {
+                    Button("Remove") { viewModel.clearSticker() }
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(.horizontal, 20)
+            
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 16) {
                     ForEach(viewModel.stickers) { sticker in
                         StickerChip(
                             asset: sticker,
@@ -618,17 +614,11 @@ private struct OverlaysTool: View {
                         }
                     }
                 }
-            }
-
-            if viewModel.selectedSticker != nil {
-                Button("Remove sticker") {
-                    viewModel.clearSticker()
-                }
-                .buttonStyle(KidSecondaryButtonStyle())
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
         }
-        .padding()
-        .kidCardBackground()
+        .padding(.top, 16)
     }
 }
 
@@ -639,33 +629,71 @@ private struct AudioTool: View {
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
         VStack(alignment: .leading, spacing: 16) {
-            Text("Soundtrack")
-                .font(.subheadline.bold())
-                .foregroundStyle(palette.accent)
-
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(viewModel.musicTracks) { track in
-                        MusicTrackRow(
-                            track: track,
-                            isSelected: viewModel.selectedMusic?.id == track.id
-                        ) {
-                            viewModel.toggleMusic(track)
+            HStack {
+                Text("Music")
+                    .font(.headline)
+                    .foregroundStyle(palette.accent)
+                Spacer()
+                if viewModel.selectedMusic != nil {
+                    Button("Remove") { viewModel.clearMusic() }
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(.horizontal, 20)
+            
+            if viewModel.selectedMusic != nil {
+                 HStack {
+                    Image(systemName: "speaker.wave.2.fill")
+                         .foregroundStyle(palette.accent)
+                    Slider(value: $viewModel.musicVolume, in: 0...1)
+                        .tint(palette.accent)
+                }
+                .padding(.horizontal, 20)
+            }
+            
+            List {
+                ForEach(viewModel.musicTracks) { track in
+                    HStack {
+                        Button {
+                             if viewModel.previewingTrackId == track.id {
+                                 viewModel.stopMusicPreview()
+                             } else {
+                                 viewModel.previewMusic(track)
+                             }
+                        } label: {
+                            Image(systemName: viewModel.previewingTrackId == track.id ? "stop.circle.fill" : "play.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(palette.accent)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Text(track.displayName)
+                            .font(.body.bold())
+                            .foregroundStyle(.black)
+                        
+                        Spacer()
+                        
+                        if viewModel.selectedMusic?.id == track.id {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(palette.accent)
                         }
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        HapticService.selection()
+                        viewModel.toggleMusic(track)
+                    }
+                    .listRowBackground(Color.clear)
                 }
             }
-            .frame(maxHeight: 240)
-
-            if viewModel.selectedMusic != nil {
-                Button("Remove music") {
-                    viewModel.clearMusic()
-                }
-                .buttonStyle(KidSecondaryButtonStyle())
-            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
-        .padding()
-        .kidCardBackground()
+        .padding(.top, 16)
+        .onDisappear {
+            viewModel.stopMusicPreview()
+        }
     }
 }
 
@@ -675,40 +703,101 @@ private struct TextTool: View {
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Caption")
-                .font(.subheadline.bold())
-                .foregroundStyle(palette.accent)
-            TextField(
-                "Add overlay text",
-                text: Binding(
-                    get: { viewModel.overlayText },
-                    set: { viewModel.overlayText = $0 }
-                ),
-                axis: .vertical
-            )
-            .lineLimit(3, reservesSpace: true)
-            .textFieldStyle(.roundedBorder)
-            .foregroundStyle(.black)
-            .padding(12)
-            .background(Color.white.opacity(0.95), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(palette.cardStroke, lineWidth: 1)
-            )
-
-            if !viewModel.overlayText.isEmpty {
-                Button("Clear caption") {
-                    viewModel.overlayText = ""
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    Text("Text Overlay")
+                         .font(.headline)
+                         .foregroundStyle(palette.accent)
+                    Spacer()
+                    if !viewModel.overlayText.isEmpty {
+                        Button("Clear") { viewModel.overlayText = "" }
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.red)
+                    }
                 }
-                .buttonStyle(KidSecondaryButtonStyle())
+                
+                TextField("Enter text...", text: $viewModel.overlayText)
+                    .textFieldStyle(.roundedBorder)
+                    .foregroundStyle(.black)
+                    .submitLabel(.done)
+
+                // Styles
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Font")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(EditorDetailViewModel.availableFonts, id: \.self) { font in
+                                Button {
+                                    viewModel.textFont = font
+                                } label: {
+                                    Text("Aa")
+                                        .font(.custom(font, size: 18))
+                                        .padding(8)
+                                        .background(
+                                            Circle().fill(viewModel.textFont == font ? palette.accent : Color.black.opacity(0.05))
+                                        )
+                                        .foregroundStyle(viewModel.textFont == font ? .white : .black)
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Colors
+                 VStack(alignment: .leading, spacing: 10) {
+                    Text("Color")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(EditorDetailViewModel.textColors, id: \.self) { color in
+                                Button {
+                                    viewModel.textColor = color
+                                } label: {
+                                    Circle()
+                                        .fill(color)
+                                        .frame(width: 32, height: 32)
+                                        .overlay(
+                                            Circle().stroke(Color.gray.opacity(0.3), lineWidth: viewModel.textColor == color ? 3 : 1)
+                                        )
+                                        .shadow(radius: 1)
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Position
+                 VStack(alignment: .leading, spacing: 10) {
+                    Text("Position")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    Picker("Position", selection: $viewModel.textPosition) {
+                        ForEach(EditorDetailViewModel.TextPosition.allCases, id: \.self) { pos in
+                            Text(pos.rawValue).tag(pos)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
+                // Size
+                 VStack(alignment: .leading, spacing: 10) {
+                    Text("Size: \(Int(viewModel.textSize))")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    Slider(value: $viewModel.textSize, in: 24...96)
+                        .tint(palette.accent)
+                }
             }
+            .padding(20)
         }
-        .padding()
-        .kidCardBackground()
     }
 }
 
+// MARK: - Helper Components
 private struct FilterChip: View {
     let title: String
     let isSelected: Bool
@@ -719,22 +808,15 @@ private struct FilterChip: View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
         Button(action: action) {
             Text(title)
-                .font(.callout.bold())
+                .font(.caption.bold())
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(Color.white.opacity(0.6))
-                        .overlay(
-                            Capsule()
-                                .fill(LinearGradient(colors: [palette.accent, palette.accentSecondary], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                .opacity(isSelected ? 1 : 0)
-                        )
+                        .fill(isSelected ? palette.accent : Color.black.opacity(0.05))
                 )
-                .foregroundStyle(isSelected ? Color.white : palette.accent)
-                .shadow(color: palette.accent.opacity(isSelected ? 0.22 : 0.05), radius: isSelected ? 6 : 2, y: isSelected ? 4 : 1)
+                .foregroundStyle(isSelected ? .white : .black)
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -747,101 +829,28 @@ private struct StickerChip: View {
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
         Button(action: action) {
-            VStack(spacing: 10) {
-                stickerPreview
-                Text(asset.displayName)
-                    .font(.caption2.bold())
-                    .lineLimit(1)
+            VStack {
+                if let image = ResourceLibrary.stickerImage(named: asset.id) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 60, height: 60)
+                } else {
+                    Image(systemName: "photo")
+                        .frame(width: 60, height: 60)
+                        .background(Color.gray.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                }
             }
-            .frame(width: 96)
-            .padding()
+            .padding(8)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.6))
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(isSelected ? palette.accent.opacity(0.1) : Color.clear)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(LinearGradient(colors: [palette.accent, palette.accentSecondary], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .opacity(isSelected ? 1 : 0)
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(isSelected ? palette.accent : Color.clear, lineWidth: 2)
                     )
             )
-            .foregroundStyle(isSelected ? Color.white : palette.accent)
-            .shadow(color: palette.accent.opacity(isSelected ? 0.25 : 0.05), radius: isSelected ? 8 : 3, y: isSelected ? 6 : 2)
         }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var stickerPreview: some View {
-        if let image = ResourceLibrary.stickerImage(named: asset.id) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 64, height: 64)
-        } else {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.3))
-                .frame(width: 64, height: 64)
-                .overlay(
-                    Image(systemName: "photo")
-                        .font(.title3)
-                        .foregroundStyle(Color.white.opacity(0.7))
-                )
-        }
-    }
-}
-
-private struct MusicTrackRow: View {
-    let track: MusicAsset
-    let isSelected: Bool
-    let action: () -> Void
-    @EnvironmentObject private var appEnvironment: AppEnvironment
-
-    var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: "music.note")
-                    .font(.title3)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(track.displayName)
-                        .font(.body.bold())
-                    Text("Loop")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(palette.success)
-                }
-            }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.9) : Color.white.opacity(0.65))
-            )
-            .foregroundStyle(palette.accent)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct ExportedToast: View {
-    @EnvironmentObject private var appEnvironment: AppEnvironment
-
-    var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        Label("Export complete", systemImage: "checkmark.circle.fill")
-            .font(.subheadline.bold())
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .background(
-                Capsule().fill(Color.white.opacity(0.92))
-            )
-            .overlay(
-                Capsule().stroke(palette.cardStroke, lineWidth: 1)
-            )
-            .foregroundStyle(palette.accent)
     }
 }
 
@@ -849,9 +858,9 @@ private extension EditorDetailViewModel.Tool {
     var displayTitle: String {
         switch self {
         case .trim: return "Trim"
-        case .effects: return "Effects"
+        case .effects: return "FX"
         case .overlays: return "Stickers"
-        case .audio: return "Audio"
+        case .audio: return "Sound"
         case .text: return "Text"
         }
     }
@@ -859,10 +868,10 @@ private extension EditorDetailViewModel.Tool {
     var iconName: String {
         switch self {
         case .trim: return "scissors"
-        case .effects: return "sparkles"
+        case .effects: return "wand.and.stars"
         case .overlays: return "face.smiling"
-        case .audio: return "music.quarternote.3"
-        case .text: return "character.cursor.ibeam"
+        case .audio: return "music.note"
+        case .text: return "textformat"
         }
     }
 }
