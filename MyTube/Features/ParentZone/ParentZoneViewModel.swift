@@ -11,6 +11,7 @@ import Foundation
 import MDKBindings
 import NostrSDK
 import OSLog
+import UIKit
 
 struct MarmotDiagnostics: Equatable {
     let groupCount: Int
@@ -160,7 +161,15 @@ final class ParentZoneViewModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var localParentKeyVariants: Set<String> = []
     private var marmotObservers: [NSObjectProtocol] = []
+    private var lifecycleObservers: [NSObjectProtocol] = []
     private let logger = Logger(subsystem: "com.mytube", category: "ParentZoneViewModel")
+    
+    // Auto-lock configuration
+    private static let inactivityLockInterval: TimeInterval = 5 * 60 // 5 minutes
+    private static let backgroundLockDelay: TimeInterval = 5 // 5 seconds after backgrounding
+    private var inactivityTimer: Timer?
+    private var backgroundLockTask: Task<Void, Never>?
+    private var lastActivityTime: Date = Date()
 
     init(environment: AppEnvironment, welcomeClient: (any WelcomeHandling)? = nil) {
         self.environment = environment
@@ -202,6 +211,7 @@ final class ParentZoneViewModel: ObservableObject {
 
         observeMarmotNotifications()
         observeParentProfileChanges()
+        observeAppLifecycle()
         loadParentalControls()
     }
 
@@ -209,6 +219,11 @@ final class ParentZoneViewModel: ObservableObject {
         for observer in marmotObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        for observer in lifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        inactivityTimer?.invalidate()
+        backgroundLockTask?.cancel()
     }
 
     private func handleDeepLink(_ url: URL) {
@@ -640,12 +655,135 @@ final class ParentZoneViewModel: ObservableObject {
         return false
     }
 
+    /// Locks the Parent Zone, requiring re-authentication
+    func lock() {
+        isUnlocked = false
+        pinEntry = ""
+        errorMessage = nil
+        stopAutoLockTimers()
+    }
+    
+    /// Call this when the user interacts with the Parent Zone to reset the inactivity timer
+    func recordActivity() {
+        guard isUnlocked else { return }
+        lastActivityTime = Date()
+        restartInactivityTimer()
+    }
+    
+    /// Called when the Parent Zone becomes visible
+    func onAppear() {
+        if isUnlocked {
+            restartInactivityTimer()
+        }
+        cancelBackgroundLockTask()
+    }
+    
+    /// Called when the Parent Zone is no longer visible (tab switch)
+    func onDisappear() {
+        stopAutoLockTimers()
+        lock()
+    }
+    
+    // MARK: - Auto-lock Implementation
+    
+    private func observeAppLifecycle() {
+        let center = NotificationCenter.default
+        
+        let backgroundObserver = center.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAppDidEnterBackground()
+        }
+        
+        let foregroundObserver = center.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAppWillEnterForeground()
+        }
+        
+        lifecycleObservers.append(contentsOf: [backgroundObserver, foregroundObserver])
+    }
+    
+    private func handleAppDidEnterBackground() {
+        guard isUnlocked else { return }
+        
+        // Stop inactivity timer while in background
+        inactivityTimer?.invalidate()
+        inactivityTimer = nil
+        
+        // Schedule lock after background delay
+        backgroundLockTask?.cancel()
+        backgroundLockTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(Self.backgroundLockDelay * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.lock()
+                self?.logger.info("Parent Zone locked due to app backgrounding")
+            } catch {
+                // Task was cancelled, don't lock
+            }
+        }
+    }
+    
+    private func handleAppWillEnterForeground() {
+        cancelBackgroundLockTask()
+        
+        // Check if we should lock due to inactivity while backgrounded
+        if isUnlocked {
+            let timeSinceLastActivity = Date().timeIntervalSince(lastActivityTime)
+            if timeSinceLastActivity >= Self.inactivityLockInterval {
+                lock()
+                logger.info("Parent Zone locked due to inactivity while backgrounded")
+            } else {
+                restartInactivityTimer()
+            }
+        }
+    }
+    
+    private func cancelBackgroundLockTask() {
+        backgroundLockTask?.cancel()
+        backgroundLockTask = nil
+    }
+    
+    private func restartInactivityTimer() {
+        inactivityTimer?.invalidate()
+        
+        let remainingTime = Self.inactivityLockInterval - Date().timeIntervalSince(lastActivityTime)
+        guard remainingTime > 0 else {
+            lock()
+            logger.info("Parent Zone locked due to inactivity")
+            return
+        }
+        
+        inactivityTimer = Timer.scheduledTimer(withTimeInterval: remainingTime, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.lock()
+                self?.logger.info("Parent Zone locked due to inactivity timer")
+            }
+        }
+    }
+    
+    private func stopAutoLockTimers() {
+        inactivityTimer?.invalidate()
+        inactivityTimer = nil
+        cancelBackgroundLockTask()
+    }
+    
     private func unlock() {
         isUnlocked = true
         pinEntry = ""
         newPin = ""
         confirmPin = ""
         errorMessage = nil
+        
+        // Start auto-lock timers
+        lastActivityTime = Date()
+        restartInactivityTimer()
+        
         refreshVideos()
         storageBreakdown()
         loadRelays()

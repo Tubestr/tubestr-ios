@@ -83,9 +83,9 @@ struct HomeFeedView: View {
             } else {
                 Text("From Trusted Creators")
                     .font(.title2.bold())
-                if viewModel.remoteShareSummary.hasActivity {
-                    remoteShareSummaryCard(summary: viewModel.remoteShareSummary)
-                }
+                // if viewModel.remoteShareSummary.hasActivity {
+                //     remoteShareSummaryCard(summary: viewModel.remoteShareSummary)
+                // }
                 ForEach(viewModel.sharedSections) { section in
                     VStack(alignment: .leading, spacing: 12) {
                         Text(section.title)

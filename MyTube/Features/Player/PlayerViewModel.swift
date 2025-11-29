@@ -111,6 +111,61 @@ final class PlayerViewModel: ObservableObject {
     var isLiked: Bool { video?.liked ?? false }
     var canLike: Bool { source.isLocal }
     
+    /// Returns true if the video can be edited/remixed
+    var canEdit: Bool {
+        switch source {
+        case .local:
+            return true
+        case .remote(let shared):
+            // Can only edit downloaded remote videos
+            return shared.video.statusValue == .downloaded && shared.video.localMediaPath != nil
+        }
+    }
+    
+    /// Creates a VideoModel suitable for editing. For remote videos, this creates a temporary model.
+    func videoModelForEditing() -> VideoModel? {
+        switch source {
+        case .local(let ranked):
+            return ranked.video
+        case .remote(let shared):
+            guard shared.video.statusValue == .downloaded,
+                  let localMediaPath = shared.video.localMediaPath else {
+                return nil
+            }
+            
+            // Create a VideoModel from the remote video for editing purposes
+            // Use a deterministic UUID based on the remote video ID for consistency
+            let editId = UUID(uuidString: shared.video.id) ?? UUID()
+            
+            return VideoModel(
+                id: editId,
+                profileId: environment.activeProfile.id,
+                filePath: localMediaPath,
+                thumbPath: shared.video.localThumbPath ?? "",
+                title: "Remix: \(shared.video.title)",
+                duration: shared.video.duration,
+                createdAt: Date(),
+                lastPlayedAt: nil,
+                playCount: 0,
+                completionRate: 0,
+                replayRate: 0,
+                liked: false,
+                hidden: false,
+                tags: [],
+                cvLabels: [],
+                faceCount: 0,
+                loudness: 0,
+                reportedAt: nil,
+                reportReason: nil,
+                approvalStatus: .pending,
+                approvedAt: nil,
+                approvedByParentKey: nil,
+                scanResults: nil,
+                scanCompletedAt: nil
+            )
+        }
+    }
+    
     var formattedDuration: String {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = duration >= 3600 ? [.hour, .minute, .second] : [.minute, .second]

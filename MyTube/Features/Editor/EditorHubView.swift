@@ -38,6 +38,7 @@ struct EditorHubView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .padding(.vertical, 8)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }

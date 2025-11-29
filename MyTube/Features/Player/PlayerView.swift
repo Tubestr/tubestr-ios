@@ -14,6 +14,8 @@ struct PlayerView: View {
     private let environment: AppEnvironment
     @State private var showingReportSheet = false
     @State private var showingPublishPIN = false
+    @State private var showingEditor = false
+    @State private var videoForEditing: VideoModel?
 
     /// Initialize with a local video
     init(rankedVideo: RankingEngine.RankedVideo, environment: AppEnvironment) {
@@ -48,6 +50,22 @@ struct PlayerView: View {
                     }
                     
                     Spacer()
+                    
+                    if viewModel.canEdit {
+                        Button {
+                            if let video = viewModel.videoModelForEditing() {
+                                videoForEditing = video
+                                showingEditor = true
+                            }
+                        } label: {
+                            Label(viewModel.source.isLocal ? "Edit" : "Remix", systemImage: "wand.and.stars")
+                                .font(.subheadline.bold())
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                    }
                     
                     if viewModel.shouldShowPublishAction {
                         Button {
@@ -189,6 +207,11 @@ struct PlayerView: View {
         .sheet(isPresented: $showingPublishPIN) {
             PINPromptView(title: "Ask Parent to Publish") { pin in
                 try await viewModel.publishPendingVideo(pin: pin)
+            }
+        }
+        .fullScreenCover(isPresented: $showingEditor) {
+            if let video = videoForEditing {
+                EditorDetailView(video: video, environment: environment)
             }
         }
     }

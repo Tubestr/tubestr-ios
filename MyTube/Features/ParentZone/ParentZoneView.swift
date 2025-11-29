@@ -300,6 +300,7 @@ struct ParentZoneView: View {
         }
         .onAppear {
             syncParentProfileFields(with: viewModel.parentProfile)
+            viewModel.onAppear()
         }
         .onChange(of: viewModel.parentProfile) { profile in
             syncParentProfileFields(with: profile)
@@ -316,6 +317,10 @@ struct ParentZoneView: View {
                     self.parseFollowInviteInput()
                 }
             }
+        }
+        .onDisappear {
+            // Lock the Parent Zone when navigating away
+            viewModel.onDisappear()
         }
     }
 
@@ -528,9 +533,23 @@ struct ParentZoneView: View {
                 .transition(.opacity)
         }
         .background(Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // Record activity on any tap
+            viewModel.recordActivity()
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    viewModel.recordActivity()
+                }
+        )
         .onAppear {
             viewModel.loadParentalControls()
             viewModel.refreshPendingApprovals()
+        }
+        .onChange(of: selectedSection) { _ in
+            viewModel.recordActivity()
         }
         .animation(.easeInOut(duration: 0.2), value: selectedSection)
         .overlay(alignment: .bottom) {
