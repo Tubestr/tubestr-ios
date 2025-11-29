@@ -189,6 +189,13 @@ private struct HeroCard: View {
 
     private var appAccent: Color { appEnvironment.activeProfile.theme.kidPalette.accent }
 
+    /// Compute aspect ratio from the thumbnail image, defaulting to 16:9
+    private var imageAspectRatio: CGFloat {
+        guard let image else { return 16.0 / 9.0 }
+        guard image.size.height > 0 else { return 16.0 / 9.0 }
+        return image.size.width / image.size.height
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Button(action: onTap) {
@@ -197,10 +204,11 @@ private struct HeroCard: View {
                         if let image {
                             Image(uiImage: image)
                                 .resizable()
-                                .aspectRatio(16 / 9, contentMode: .fill)
+                                .aspectRatio(imageAspectRatio, contentMode: .fit)
                         } else {
                             RoundedRectangle(cornerRadius: 20, style: .continuous)
                                 .fill(Color.purple.opacity(0.2))
+                                .aspectRatio(16.0 / 9.0, contentMode: .fit)
                                 .overlay(
                                     Image(systemName: "play.circle.fill")
                                         .font(.system(size: 72))
@@ -208,8 +216,7 @@ private struct HeroCard: View {
                                 )
                         }
                     }
-                    .frame(maxWidth: .infinity, minHeight: 300)
-                    .clipped()
+                    .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -285,31 +292,31 @@ private struct VideoCard: View {
     private var appAccent: Color { appEnvironment.activeProfile.theme.kidPalette.accent }
     private var isPending: Bool { video.approvalStatus == .pending }
 
+    /// Check if thumbnail is portrait orientation
+    private var isPortrait: Bool {
+        guard let image else { return false }
+        return image.size.height > image.size.width
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: onTap) {
                 ZStack(alignment: .topTrailing) {
+                    // Background for consistent card appearance
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.black.opacity(0.05))
+
                     Group {
                         if let image {
                             Image(uiImage: image)
                                 .resizable()
-                                .aspectRatio(16 / 9, contentMode: .fill)
+                                .aspectRatio(contentMode: .fit)
                         } else {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.blue.opacity(0.2))
-                                .overlay(
-                                    Image(systemName: "video.fill")
-                                        .font(.system(size: 32))
-                                        .foregroundStyle(.blue.opacity(0.6))
-                                )
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.blue.opacity(0.6))
                         }
                     }
-                    .frame(width: 220, height: 130)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(appAccent.opacity(0.25), lineWidth: 1)
-                    )
 
                     if video.liked {
                         Image(systemName: "heart.fill")
@@ -327,6 +334,12 @@ private struct VideoCard: View {
                             .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
                 }
+                .frame(width: isPortrait ? 100 : 220, height: 130)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(appAccent.opacity(0.25), lineWidth: 1)
+                )
             }
             .buttonStyle(.plain)
 
@@ -338,7 +351,7 @@ private struct VideoCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .frame(width: 220, alignment: .leading)
+            .frame(width: isPortrait ? 100 : 220, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture {
                 onTap()
@@ -439,36 +452,34 @@ private struct RemoteVideoCard: View, Identifiable {
         }
     }
 
+    /// Check if thumbnail is portrait orientation
+    private var isPortrait: Bool {
+        guard let image else { return false }
+        return image.size.height > image.size.width
+    }
+
+    /// Card width adapts to portrait vs landscape
+    private var cardWidth: CGFloat { isPortrait ? 110 : 240 }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 12) {
                 ZStack {
+                    // Background for consistent card appearance
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.orange.opacity(0.08))
+
                     Group {
                         if let image {
                             Image(uiImage: image)
                                 .resizable()
-                                .aspectRatio(16 / 9, contentMode: .fill)
-                                .frame(width: 240, height: 140)
-                                .clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .aspectRatio(contentMode: .fit)
                         } else {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color.orange.opacity(0.18))
-                                .frame(width: 240, height: 140)
-                                .overlay(
-                                    Image(systemName: "cloud.fill")
-                                        .font(.system(size: 40))
-                                        .foregroundStyle(.orange.opacity(0.8))
-                                )
+                            Image(systemName: "cloud.fill")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.orange.opacity(0.8))
                         }
                     }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(
-                                status == .downloaded ? Color.green.opacity(0.6) : appAccent.opacity(0.25),
-                                lineWidth: 1
-                            )
-                    )
 
                     if status == .downloading {
                         ProgressView()
@@ -476,6 +487,15 @@ private struct RemoteVideoCard: View, Identifiable {
                             .tint(appAccent)
                     }
                 }
+                .frame(width: cardWidth, height: 140)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(
+                            status == .downloaded ? Color.green.opacity(0.6) : appAccent.opacity(0.25),
+                            lineWidth: 1
+                        )
+                )
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(video.video.title)
@@ -510,7 +530,7 @@ private struct RemoteVideoCard: View, Identifiable {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .frame(width: 240, alignment: .leading)
+                .frame(width: cardWidth, alignment: .leading)
             }
             .padding(.vertical, 4)
         }

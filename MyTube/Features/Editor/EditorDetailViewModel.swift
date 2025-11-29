@@ -121,11 +121,12 @@ final class EditorDetailViewModel: ObservableObject {
         case center = "Center"
         case bottom = "Bottom"
 
-        var yOffset: CGFloat {
+        /// Relative Y offset (0.0 = top, 1.0 = bottom) for positioning text
+        var relativeYOffset: CGFloat {
             switch self {
-            case .top: return 150
-            case .center: return 960
-            case .bottom: return 1700
+            case .top: return 0.078
+            case .center: return 0.5
+            case .bottom: return 0.885
             }
         }
     }
@@ -163,6 +164,8 @@ final class EditorDetailViewModel: ObservableObject {
     @Published private(set) var isPreviewLoading = false
     @Published private(set) var compositionDuration: Double = 0
     @Published private(set) var sourceAspectRatio: CGFloat = 9.0 / 16.0
+    @Published private(set) var sourceVideoWidth: CGFloat = 1080
+    @Published private(set) var sourceVideoHeight: CGFloat = 1920
     @Published private(set) var timelineThumbnails: [UIImage] = []
     @Published private var effectValues: [VideoEffectKind: Float]
     @Published var isScanning = false
@@ -490,11 +493,11 @@ final class EditorDetailViewModel: ObservableObject {
 
         var overlays: [OverlayItem] = []
         if let sticker = selectedSticker {
-            // Use transform values to calculate sticker frame
-            // Video dimensions (assuming 9:16 portrait video at 1080p)
-            let videoWidth: CGFloat = 1080
-            let videoHeight: CGFloat = 1920
-            let baseSize: CGFloat = 300
+            // Use transform values to calculate sticker frame using actual video dimensions
+            let videoWidth = sourceVideoWidth
+            let videoHeight = sourceVideoHeight
+            // Base sticker size scales with the smaller dimension
+            let baseSize: CGFloat = min(videoWidth, videoHeight) * 0.28
             let scaledSize = baseSize * stickerTransform.scale
 
             let centerX = stickerTransform.position.x * videoWidth
@@ -519,10 +522,14 @@ final class EditorDetailViewModel: ObservableObject {
         if !overlayText.isEmpty {
             // Scale text height based on font size
             let textHeight = textSize * 2.5
+            // Calculate text position relative to actual video dimensions
+            let textYOffset = textPosition.relativeYOffset * sourceVideoHeight
+            let textMargin = sourceVideoWidth * 0.055
+            let textWidth = sourceVideoWidth - (textMargin * 2)
             overlays.append(
                 OverlayItem(
                     content: .text(overlayText, fontName: textFont, color: textColor),
-                    frame: CGRect(x: 60, y: textPosition.yOffset, width: 960, height: textHeight),
+                    frame: CGRect(x: textMargin, y: textYOffset, width: textWidth, height: textHeight),
                     start: .zero,
                     end: clipDuration
                 )
@@ -618,6 +625,8 @@ final class EditorDetailViewModel: ObservableObject {
             let transformed = track.naturalSize.applying(track.preferredTransform)
             let width = max(abs(transformed.width), 1)
             let height = max(abs(transformed.height), 1)
+            sourceVideoWidth = CGFloat(width)
+            sourceVideoHeight = CGFloat(height)
             sourceAspectRatio = CGFloat(width / height)
         }
     }

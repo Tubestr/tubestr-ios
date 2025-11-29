@@ -72,22 +72,31 @@ struct EditorHubView: View {
 private struct ThumbnailView: View {
     let image: UIImage?
 
+    /// Check if thumbnail is portrait orientation
+    private var isPortrait: Bool {
+        guard let image else { return false }
+        return image.size.height > image.size.width
+    }
+
+    /// Frame width adapts to portrait vs landscape
+    private var frameWidth: CGFloat { isPortrait ? 60 : 120 }
+
     var body: some View {
-        Group {
+        ZStack {
+            // Background for consistent appearance
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.gray.opacity(0.1))
+
             if let image {
                 Image(uiImage: image)
                     .resizable()
-                    .aspectRatio(16 / 9, contentMode: .fill)
+                    .aspectRatio(contentMode: .fit)
             } else {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.gray.opacity(0.2))
-                    .overlay(
-                        Image(systemName: "video.fill")
-                            .foregroundStyle(.secondary)
-                    )
+                Image(systemName: "video.fill")
+                    .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 120, height: 80)
+        .frame(width: frameWidth, height: 80)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)

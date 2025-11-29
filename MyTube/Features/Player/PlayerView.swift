@@ -220,14 +220,14 @@ struct PlayerView: View {
     private var videoPlayerArea: some View {
         if let player = viewModel.player {
             VideoPlayer(player: player)
-                .aspectRatio(16/9, contentMode: .fit)
+                .aspectRatio(viewModel.videoAspectRatio, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
         } else {
             // Loading or error state for remote videos
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.1))
-                .aspectRatio(16/9, contentMode: .fit)
+                .aspectRatio(viewModel.videoAspectRatio, contentMode: .fit)
                 .overlay(
                     VStack(spacing: 12) {
                         if let error = viewModel.playbackError {

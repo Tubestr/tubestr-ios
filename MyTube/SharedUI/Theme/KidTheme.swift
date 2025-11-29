@@ -2,10 +2,11 @@
 //  KidTheme.swift
 //  MyTube
 //
-//  Cosmetic design system for a warm, kid-friendly look & feel.
+//  Created by Codex on 11/29/25.
 //
 
 import SwiftUI
+import UIKit
 
 struct KidPalette {
     let accent: Color
@@ -29,52 +30,136 @@ extension ThemeDescriptor {
         switch self {
         case .ocean:
             return KidPalette(
-                accent: Color(red: 0.13, green: 0.66, blue: 0.98),
-                accentSecondary: Color(red: 0.35, green: 0.89, blue: 0.98),
-                bgTop: Color(red: 0.93, green: 0.92, blue: 1.00),
-                bgBottom: Color(red: 0.87, green: 0.90, blue: 1.00),
-                cardFill: Color.white.opacity(0.6),
-                cardStroke: Color(red: 0.13, green: 0.66, blue: 0.98).opacity(0.25),
-                chipFill: Color.white.opacity(0.75),
+                accent: Color(
+                    light: Color(red: 0.13, green: 0.66, blue: 0.98),
+                    dark: Color(red: 0.30, green: 0.80, blue: 1.00)
+                ),
+                accentSecondary: Color(
+                    light: Color(red: 0.35, green: 0.89, blue: 0.98),
+                    dark: Color(red: 0.20, green: 0.70, blue: 0.90)
+                ),
+                bgTop: Color(
+                    light: Color(red: 0.93, green: 0.92, blue: 1.00),
+                    dark: Color(red: 0.05, green: 0.05, blue: 0.15)
+                ),
+                bgBottom: Color(
+                    light: Color(red: 0.87, green: 0.90, blue: 1.00),
+                    dark: Color(red: 0.10, green: 0.10, blue: 0.25)
+                ),
+                cardFill: Color(
+                    light: Color.white.opacity(0.6),
+                    dark: Color.white.opacity(0.1)
+                ),
+                cardStroke: Color(
+                    light: Color(red: 0.13, green: 0.66, blue: 0.98),
+                    dark: Color(red: 0.30, green: 0.80, blue: 1.00)
+                ).opacity(0.25),
+                chipFill: Color(
+                    light: Color.white.opacity(0.75),
+                    dark: Color.white.opacity(0.2)
+                ),
                 success: Color(red: 0.18, green: 0.73, blue: 0.43),
                 warning: Color(red: 1.00, green: 0.62, blue: 0.00),
                 error: Color(red: 0.95, green: 0.33, blue: 0.36)
             )
         case .sunset:
             return KidPalette(
-                accent: Color(red: 0.97, green: 0.35, blue: 0.54),
-                accentSecondary: Color(red: 1.00, green: 0.68, blue: 0.37),
-                bgTop: Color(red: 1.00, green: 0.90, blue: 0.80),
-                bgBottom: Color(red: 1.00, green: 0.78, blue: 0.72),
-                cardFill: Color.white.opacity(0.6),
-                cardStroke: Color(red: 0.97, green: 0.35, blue: 0.54).opacity(0.25),
-                chipFill: Color.white.opacity(0.75),
+                accent: Color(
+                    light: Color(red: 0.97, green: 0.35, blue: 0.54),
+                    dark: Color(red: 1.00, green: 0.50, blue: 0.70)
+                ),
+                accentSecondary: Color(
+                    light: Color(red: 1.00, green: 0.68, blue: 0.37),
+                    dark: Color(red: 1.00, green: 0.55, blue: 0.20)
+                ),
+                bgTop: Color(
+                    light: Color(red: 1.00, green: 0.90, blue: 0.80),
+                    dark: Color(red: 0.25, green: 0.10, blue: 0.05)
+                ),
+                bgBottom: Color(
+                    light: Color(red: 1.00, green: 0.78, blue: 0.72),
+                    dark: Color(red: 0.30, green: 0.15, blue: 0.10)
+                ),
+                cardFill: Color(
+                    light: Color.white.opacity(0.6),
+                    dark: Color.white.opacity(0.1)
+                ),
+                cardStroke: Color(
+                    light: Color(red: 0.97, green: 0.35, blue: 0.54),
+                    dark: Color(red: 1.00, green: 0.50, blue: 0.70)
+                ).opacity(0.25),
+                chipFill: Color(
+                    light: Color.white.opacity(0.75),
+                    dark: Color.white.opacity(0.2)
+                ),
                 success: Color(red: 0.18, green: 0.73, blue: 0.43),
                 warning: Color(red: 1.00, green: 0.62, blue: 0.00),
                 error: Color(red: 0.95, green: 0.33, blue: 0.36)
             )
         case .forest:
             return KidPalette(
-                accent: Color(red: 0.25, green: 0.70, blue: 0.49),
-                accentSecondary: Color(red: 0.52, green: 0.88, blue: 0.52),
-                bgTop: Color(red: 0.88, green: 0.98, blue: 0.90),
-                bgBottom: Color(red: 0.80, green: 0.94, blue: 0.86),
-                cardFill: Color.white.opacity(0.6),
-                cardStroke: Color(red: 0.25, green: 0.70, blue: 0.49).opacity(0.25),
-                chipFill: Color.white.opacity(0.75),
+                accent: Color(
+                    light: Color(red: 0.25, green: 0.70, blue: 0.49),
+                    dark: Color(red: 0.40, green: 0.90, blue: 0.60)
+                ),
+                accentSecondary: Color(
+                    light: Color(red: 0.52, green: 0.88, blue: 0.52),
+                    dark: Color(red: 0.30, green: 0.70, blue: 0.40)
+                ),
+                bgTop: Color(
+                    light: Color(red: 0.88, green: 0.98, blue: 0.90),
+                    dark: Color(red: 0.05, green: 0.15, blue: 0.05)
+                ),
+                bgBottom: Color(
+                    light: Color(red: 0.80, green: 0.94, blue: 0.86),
+                    dark: Color(red: 0.10, green: 0.20, blue: 0.15)
+                ),
+                cardFill: Color(
+                    light: Color.white.opacity(0.6),
+                    dark: Color.white.opacity(0.1)
+                ),
+                cardStroke: Color(
+                    light: Color(red: 0.25, green: 0.70, blue: 0.49),
+                    dark: Color(red: 0.40, green: 0.90, blue: 0.60)
+                ).opacity(0.25),
+                chipFill: Color(
+                    light: Color.white.opacity(0.75),
+                    dark: Color.white.opacity(0.2)
+                ),
                 success: Color(red: 0.18, green: 0.73, blue: 0.43),
                 warning: Color(red: 1.00, green: 0.62, blue: 0.00),
                 error: Color(red: 0.95, green: 0.33, blue: 0.36)
             )
         case .galaxy:
             return KidPalette(
-                accent: Color(red: 0.52, green: 0.46, blue: 0.98),
-                accentSecondary: Color(red: 0.36, green: 0.79, blue: 0.98),
-                bgTop: Color(red: 0.93, green: 0.92, blue: 1.00),
-                bgBottom: Color(red: 0.87, green: 0.90, blue: 1.00),
-                cardFill: Color.white.opacity(0.6),
-                cardStroke: Color(red: 0.52, green: 0.46, blue: 0.98).opacity(0.25),
-                chipFill: Color.white.opacity(0.75),
+                accent: Color(
+                    light: Color(red: 0.52, green: 0.46, blue: 0.98),
+                    dark: Color(red: 0.70, green: 0.65, blue: 1.00)
+                ),
+                accentSecondary: Color(
+                    light: Color(red: 0.36, green: 0.79, blue: 0.98),
+                    dark: Color(red: 0.50, green: 0.40, blue: 0.90)
+                ),
+                bgTop: Color(
+                    light: Color(red: 0.93, green: 0.92, blue: 1.00),
+                    dark: Color(red: 0.10, green: 0.05, blue: 0.20)
+                ),
+                bgBottom: Color(
+                    light: Color(red: 0.87, green: 0.90, blue: 1.00),
+                    dark: Color(red: 0.15, green: 0.10, blue: 0.30)
+                ),
+                cardFill: Color(
+                    light: Color.white.opacity(0.6),
+                    dark: Color.white.opacity(0.1)
+                ),
+                cardStroke: Color(
+                    light: Color(red: 0.52, green: 0.46, blue: 0.98),
+                    dark: Color(red: 0.70, green: 0.65, blue: 1.00)
+                ).opacity(0.25),
+                chipFill: Color(
+                    light: Color.white.opacity(0.75),
+                    dark: Color.white.opacity(0.2)
+                ),
                 success: Color(red: 0.18, green: 0.73, blue: 0.43),
                 warning: Color(red: 1.00, green: 0.62, blue: 0.00),
                 error: Color(red: 0.95, green: 0.33, blue: 0.36)
@@ -152,7 +237,7 @@ struct KidSecondaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.6))
+                    .fill(palette.cardFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -182,4 +267,28 @@ struct KidCircleIconButtonStyle: ButtonStyle {
     }
 }
 
-
+extension Color {
+    /// Creates a color that dynamically adapts to light and dark modes
+    init(light: Color, dark: Color) {
+        self.init(uiColor: UIColor { traitCollection in
+            switch traitCollection.userInterfaceStyle {
+            case .dark:
+                return UIColor(dark)
+            default:
+                return UIColor(light)
+            }
+        })
+    }
+    
+    /// Creates a color that dynamically adapts to light and dark modes using UIColors
+    init(light: UIColor, dark: UIColor) {
+        self.init(uiColor: UIColor { traitCollection in
+            switch traitCollection.userInterfaceStyle {
+            case .dark:
+                return dark
+            default:
+                return light
+            }
+        })
+    }
+}

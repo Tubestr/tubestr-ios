@@ -84,6 +84,7 @@ final class PlayerViewModel: ObservableObject {
     @Published var reportSuccess = false
     @Published private(set) var isPublishing = false
     @Published private(set) var playbackError: String?
+    @Published private(set) var videoAspectRatio: CGFloat = 16.0 / 9.0
 
     let source: VideoSource
     var player: AVPlayer? { internalPlayer }
@@ -177,17 +178,18 @@ final class PlayerViewModel: ObservableObject {
     init(source: VideoSource, environment: AppEnvironment) {
         self.source = source
         self.environment = environment
-        
+
         switch source {
         case .local(let ranked):
             self.video = ranked.video
             let url = environment.videoLibrary.videoFileURL(for: ranked.video)
             self.internalPlayer = AVPlayer(url: url)
+            self.videoAspectRatio = Self.computeAspectRatio(for: url)
         case .remote(let shared):
             self.remoteVideo = shared
             // Player will be set up in onAppear after checking file exists
         }
-        
+
         setupBindings()
     }
     
@@ -259,14 +261,28 @@ final class PlayerViewModel: ObservableObject {
             playbackError = "Video file not found."
             return
         }
-        
+
         if !FileManager.default.fileExists(atPath: url.path) {
             playbackError = "Video not downloaded."
             return
         }
-        
+
+        videoAspectRatio = Self.computeAspectRatio(for: url)
         let item = AVPlayerItem(url: url)
         internalPlayer = AVPlayer(playerItem: item)
+    }
+
+    /// Computes the aspect ratio of a video, accounting for any rotation transform.
+    private static func computeAspectRatio(for url: URL) -> CGFloat {
+        let asset = AVURLAsset(url: url)
+        guard let track = asset.tracks(withMediaType: .video).first else {
+            return 16.0 / 9.0
+        }
+        let transformed = track.naturalSize.applying(track.preferredTransform)
+        let width = abs(transformed.width)
+        let height = abs(transformed.height)
+        guard height > 0 else { return 16.0 / 9.0 }
+        return width / height
     }
 
     func togglePlayPause() {

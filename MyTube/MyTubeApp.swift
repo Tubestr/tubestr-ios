@@ -16,7 +16,6 @@ struct MyTubeApp: App {
             AppRootView()
                 .environmentObject(environment)
                 .environment(\.managedObjectContext, environment.persistence.viewContext)
-                .preferredColorScheme(.light)
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }

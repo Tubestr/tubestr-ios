@@ -44,6 +44,7 @@ struct ParentZoneView: View {
     @State private var selectedSection: ParentZoneSection = .overview
     @State private var expandedChildIDs: Set<UUID> = []
     @State private var familyViewSelection: FamilyViewSelection = .children
+    @State private var isSidebarOpen = false
 
     private var isKeyPackageFetching: Bool {
         if case .fetching = viewModel.keyPackageFetchState { return true }
@@ -150,15 +151,54 @@ struct ParentZoneView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if viewModel.isUnlocked {
-                    unlockedView
-                } else {
-                    lockView
+        ZStack(alignment: .leading) {
+            NavigationStack {
+                Group {
+                    if viewModel.isUnlocked {
+                        unlockedView
+                    } else {
+                        lockView
+                    }
+                }
+                .navigationTitle(viewModel.isUnlocked ? selectedSection.title : "Parent Zone")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if viewModel.isUnlocked {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                    isSidebarOpen.toggle()
+                                }
+                            } label: {
+                                Image(systemName: "line.3.horizontal")
+                                    .font(.body.weight(.medium))
+                            }
+                        }
+                    }
                 }
             }
-            .standardToolbar(showLogo: false)
+            
+            // Dimming overlay when sidebar is open
+            if isSidebarOpen {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            isSidebarOpen = false
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+            
+            // Sidebar
+            if viewModel.isUnlocked {
+                sidebarView
+                    .frame(width: 280)
+                    .offset(x: isSidebarOpen ? 0 : -300)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isSidebarOpen)
+                    .zIndex(2)
+            }
         }
         .sheet(isPresented: Binding(
             get: { sharePayload != nil },
@@ -517,44 +557,122 @@ struct ParentZoneView: View {
     }
 
     private var unlockedView: some View {
-        VStack(spacing: 0) {
-            Picker("Section", selection: $selectedSection) {
-                ForEach(ParentZoneSection.allCases) { section in
-                    Text(section.title).tag(section)
+        sectionContent(for: selectedSection)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
+            .background(Color.clear)
+            .onAppear {
+                viewModel.loadParentalControls()
+                viewModel.refreshPendingApprovals()
+            }
+            .onChange(of: selectedSection) { _ in
+                viewModel.recordActivity()
+            }
+            .animation(.easeInOut(duration: 0.2), value: selectedSection)
+            .overlay(alignment: .bottom) {
+                errorBanner
+            }
+    }
+    
+    private var sidebarView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Sidebar header
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.title)
+                        .foregroundStyle(.white)
+                    Text("Parent Zone")
+                        .font(.title2.bold())
+                        .foregroundStyle(.white)
+                }
+                .padding(.top, 20)
+                
+                if let parent = viewModel.parentIdentity {
+                    Text(shortKey(parent.publicKeyBech32 ?? parent.publicKeyHex))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.white.opacity(0.7))
                 }
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.top)
-            .padding(.bottom, 12)
-
-            sectionContent(for: selectedSection)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .transition(.opacity)
-        }
-        .background(Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            // Record activity on any tap
-            viewModel.recordActivity()
-        }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    viewModel.recordActivity()
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                LinearGradient(
+                    colors: [Color.accentColor, Color.accentColor.opacity(0.8)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            
+            // Navigation items
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(ParentZoneSection.allCases) { section in
+                        sidebarNavigationItem(for: section)
+                    }
                 }
+                .padding(.vertical, 12)
+            }
+            
+            Spacer()
+            
+            // Footer with version
+            Text(AppVersionFormatter.formatted)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 16)
+        }
+        .frame(maxHeight: .infinity)
+        .background(Color(uiColor: .systemBackground))
+        .clipShape(
+            RoundedCorner(radius: 20, corners: [.topRight, .bottomRight])
         )
-        .onAppear {
-            viewModel.loadParentalControls()
-            viewModel.refreshPendingApprovals()
+        .shadow(color: .black.opacity(0.2), radius: 10, x: 5, y: 0)
+        .ignoresSafeArea(edges: .vertical)
+    }
+    
+    private func sidebarNavigationItem(for section: ParentZoneSection) -> some View {
+        let isSelected = selectedSection == section
+        
+        return Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                selectedSection = section
+                isSidebarOpen = false
+            }
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: section.icon)
+                    .font(.body.weight(.medium))
+                    .frame(width: 24)
+                    .foregroundStyle(isSelected ? .white : .primary)
+                
+                Text(section.title)
+                    .font(.body.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? .white : .primary)
+                
+                Spacer()
+                
+                if section == .connections && viewModel.pendingWelcomes.count > 0 {
+                    Text("\(viewModel.pendingWelcomes.count)")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(isSelected ? .white.opacity(0.3) : .orange))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+            )
+            .contentShape(Rectangle())
         }
-        .onChange(of: selectedSection) { _ in
-            viewModel.recordActivity()
-        }
-        .animation(.easeInOut(duration: 0.2), value: selectedSection)
-        .overlay(alignment: .bottom) {
-            errorBanner
-        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
     }
 
     private var lockView: some View {
@@ -2067,6 +2185,18 @@ private enum ParentZoneSection: String, CaseIterable, Identifiable {
         case .settings: return "Settings"
         }
     }
+    
+    var icon: String {
+        switch self {
+        case .overview: return "square.grid.2x2"
+        case .family: return "figure.2.and.child.holdinghands"
+        case .connections: return "person.3.sequence"
+        case .library: return "film.stack"
+        case .storage: return "externaldrive"
+        case .safety: return "shield.checkered"
+        case .settings: return "gearshape"
+        }
+    }
 }
 
 private struct ChildProfileFormSheet: View {
@@ -2305,5 +2435,19 @@ private extension StorageUsage {
         let capacity = 5.0 * 1024 * 1024 * 1024 // 5 GB notional capacity
         guard capacity > 0 else { return 0 }
         return min(Double(total) / capacity, 1)
+    }
+}
+
+private struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(path.cgPath)
     }
 }

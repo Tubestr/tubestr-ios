@@ -10,6 +10,7 @@ import SwiftUI
 
 struct EditorDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appEnvironment: AppEnvironment
     @StateObject private var viewModel: EditorDetailViewModel
 
@@ -57,7 +58,7 @@ struct EditorDetailView: View {
                     // Bottom Tool Area
                     toolPanel
                         .frame(height: 260)
-                        .background(Color.white.opacity(0.6))
+                        .background(colorScheme == .dark ? Color.black.opacity(0.6) : Color.white.opacity(0.6))
                         .background(.ultraThinMaterial)
                         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                         .padding(.horizontal, 16)
@@ -147,7 +148,7 @@ extension EditorDetailView {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(palette.accent)
                     .frame(width: 44, height: 44)
-                    .background(Color.white.opacity(0.8), in: Circle())
+                    .background(colorScheme == .dark ? Color.white.opacity(0.15) : Color.white.opacity(0.8), in: Circle())
             }
             
             Spacer()
@@ -269,7 +270,7 @@ extension EditorDetailView {
                             .frame(width: 48, height: 48)
                             .background(
                                 Circle()
-                                    .fill(isActive ? palette.accent : Color.white)
+                                    .fill(isActive ? palette.accent : (colorScheme == .dark ? Color.white.opacity(0.2) : Color.white))
                                     .shadow(color: palette.accent.opacity(0.15), radius: 8, y: 4)
                             )
                             .foregroundStyle(isActive ? .white : palette.accent)
@@ -277,7 +278,7 @@ extension EditorDetailView {
                         Text(tool.displayTitle)
                             .font(.caption2.bold())
                             .foregroundStyle(palette.accent)
-                            .shadow(color: .white.opacity(0.5), radius: 2, x: 0, y: 1)
+                            .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.5), radius: 2, x: 0, y: 1)
                     }
                 }
             }
@@ -291,7 +292,7 @@ extension EditorDetailView {
                     .font(.system(size: 20))
                     .foregroundStyle(.red)
                     .frame(width: 48, height: 48)
-                    .background(Color.white, in: Circle())
+                    .background(colorScheme == .dark ? Color.white.opacity(0.2) : Color.white, in: Circle())
                     .shadow(color: Color.black.opacity(0.1), radius: 5)
             }
         }
@@ -526,6 +527,7 @@ private struct TrimTool: View {
 private struct EffectsTool: View {
     @ObservedObject var viewModel: EditorDetailViewModel
     @EnvironmentObject private var appEnvironment: AppEnvironment
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
@@ -625,6 +627,7 @@ private struct OverlaysTool: View {
 private struct AudioTool: View {
     @ObservedObject var viewModel: EditorDetailViewModel
     @EnvironmentObject private var appEnvironment: AppEnvironment
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
@@ -670,7 +673,7 @@ private struct AudioTool: View {
                         
                         Text(track.displayName)
                             .font(.body.bold())
-                            .foregroundStyle(.black)
+                            .foregroundStyle(.primary)
                         
                         Spacer()
                         
@@ -700,6 +703,7 @@ private struct AudioTool: View {
 private struct TextTool: View {
     @ObservedObject var viewModel: EditorDetailViewModel
     @EnvironmentObject private var appEnvironment: AppEnvironment
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
@@ -719,8 +723,9 @@ private struct TextTool: View {
                 
                 TextField("Enter text...", text: $viewModel.overlayText)
                     .textFieldStyle(.roundedBorder)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.primary)
                     .submitLabel(.done)
+                    .colorScheme(colorScheme)
 
                 // Styles
                 VStack(alignment: .leading, spacing: 10) {
@@ -737,9 +742,9 @@ private struct TextTool: View {
                                         .font(.custom(font, size: 18))
                                         .padding(8)
                                         .background(
-                                            Circle().fill(viewModel.textFont == font ? palette.accent : Color.black.opacity(0.05))
+                                            Circle().fill(viewModel.textFont == font ? palette.accent : (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.05)))
                                         )
-                                        .foregroundStyle(viewModel.textFont == font ? .white : .black)
+                                        .foregroundStyle(viewModel.textFont == font ? .white : .primary)
                                 }
                             }
                         }
@@ -803,6 +808,7 @@ private struct FilterChip: View {
     let isSelected: Bool
     let action: () -> Void
     @EnvironmentObject private var appEnvironment: AppEnvironment
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
@@ -813,9 +819,9 @@ private struct FilterChip: View {
                 .padding(.vertical, 8)
                 .background(
                     Capsule()
-                        .fill(isSelected ? palette.accent : Color.black.opacity(0.05))
+                        .fill(isSelected ? palette.accent : (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.05)))
                 )
-                .foregroundStyle(isSelected ? .white : .black)
+                .foregroundStyle(isSelected ? .white : .primary)
         }
     }
 }
@@ -825,6 +831,7 @@ private struct StickerChip: View {
     let isSelected: Bool
     let action: () -> Void
     @EnvironmentObject private var appEnvironment: AppEnvironment
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
