@@ -139,9 +139,8 @@ struct VideoShareMessage: Codable, Sendable {
 
     let t: String
     let videoId: String
-    let ownerChild: String  // Now contains child profile ID instead of pubkey
+    let ownerChild: String  // Child's bech32 npub (e.g., "npub1...")
     let childName: String?  // Display name of the child
-    let childProfileId: String?  // Explicit UUID of child profile
     let meta: Meta?
     let blob: Blob
     let thumb: Blob
@@ -154,7 +153,6 @@ struct VideoShareMessage: Codable, Sendable {
         videoId: String,
         ownerChild: String,
         childName: String? = nil,
-        childProfileId: String? = nil,
         meta: Meta?,
         blob: Blob,
         thumb: Blob,
@@ -167,7 +165,6 @@ struct VideoShareMessage: Codable, Sendable {
         self.videoId = videoId
         self.ownerChild = ownerChild
         self.childName = childName
-        self.childProfileId = childProfileId
         self.meta = meta
         self.blob = blob
         self.thumb = thumb
@@ -182,7 +179,6 @@ struct VideoShareMessage: Codable, Sendable {
         case videoId = "video_id"
         case ownerChild = "owner_child"
         case childName = "child_name"
-        case childProfileId = "child_profile_id"
         case meta
         case blob
         case thumb

@@ -14,6 +14,7 @@ import OSLog
 final class VideoShareCoordinator {
     private let persistence: PersistenceController
     private let keyStore: KeychainKeyStore
+    private let identityManager: IdentityManager
     private let videoSharePublisher: VideoSharePublisher
     private let marmotShareService: MarmotShareService
     private let parentalControlsStore: ParentalControlsStore
@@ -29,12 +30,14 @@ final class VideoShareCoordinator {
         case videoMissing
         case invalidState
         case parentKeyMissing
+        case childIdentityMissing
         case deliveryFailed
     }
 
     init(
         persistence: PersistenceController,
         keyStore: KeychainKeyStore,
+        identityManager: IdentityManager,
         videoSharePublisher: VideoSharePublisher,
         marmotShareService: MarmotShareService,
         parentalControlsStore: ParentalControlsStore,
@@ -42,6 +45,7 @@ final class VideoShareCoordinator {
     ) {
         self.persistence = persistence
         self.keyStore = keyStore
+        self.identityManager = identityManager
         self.videoSharePublisher = videoSharePublisher
         self.marmotShareService = marmotShareService
         self.parentalControlsStore = parentalControlsStore
@@ -170,19 +174,25 @@ final class VideoShareCoordinator {
                 logger.info("Skipping share; parent identity missing.")
                 return 0
             }
-            
-            // Children no longer have keys - use profile ID as identifier
-            let childProfileId = video.profileId.uuidString.lowercased().replacingOccurrences(of: "-", with: "")
-            let ownerChildKey = childProfileId  // Use profile ID instead of child pubkey
 
-            // Get the group IDs for this child's profile
+            // Get the profile for this video
             let results = try fetchProfile(id: video.profileId)
-            guard let profile = results.profile else {
+            guard let profileEntity = results.profile,
+                  let profileModel = ProfileModel(entity: profileEntity) else {
                 logger.debug("No profile for video \(video.id.uuidString, privacy: .public); deferring share.")
                 pendingVideoIDs.insert(video.id)
                 return 0
             }
-            let groupIds = await groupIds(for: profile)
+
+            // Get child identity to retrieve npub
+            guard let childIdentity = identityManager.childIdentity(for: profileModel),
+                  let childNpub = childIdentity.publicKeyBech32 else {
+                logger.error("No child identity for profile \(video.profileId.uuidString, privacy: .public); cannot share.")
+                pendingVideoIDs.insert(video.id)
+                return 0
+            }
+
+            let groupIds = await groupIds(for: profileEntity)
             guard !groupIds.isEmpty else {
                 logger.debug("No Marmot groups for video \(video.id.uuidString, privacy: .public); deferring share.")
                 pendingVideoIDs.insert(video.id)
@@ -193,7 +203,7 @@ final class VideoShareCoordinator {
 
             let shareMessage = try await videoSharePublisher.makeShareMessage(
                 video: video,
-                ownerChildNpub: ownerChildKey
+                ownerChildNpub: childNpub
             )
 
             var failedGroups: [String] = []
@@ -306,25 +316,7 @@ final class VideoShareCoordinator {
     }
 
     private func groupIds(for profile: ProfileEntity) async -> [String] {
-        var ids = Set<String>()
-        if let primary = profile.mlsGroupId, !primary.isEmpty {
-            ids.insert(primary)
-        }
-
-        let childName = profile.name?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-        guard let groups = try? await mdkActor.getGroups() else {
-            return Array(ids)
-        }
-
-        for group in groups {
-            let nameMatch = group.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let descriptionMatch = group.description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if !childName.isEmpty &&
-                (nameMatch.contains(childName) || descriptionMatch.contains(childName) || descriptionMatch.contains("secure sharing for \(childName)")) {
-                ids.insert(group.mlsGroupId)
-            }
-        }
-        return Array(ids)
+        profile.mlsGroupIds
     }
 }
 
@@ -337,6 +329,8 @@ extension VideoShareCoordinator.PublishError: LocalizedError {
             return "This video is not waiting for approval."
         case .parentKeyMissing:
             return "Parent identity is missing; add a parent key to approve videos."
+        case .childIdentityMissing:
+            return "Child identity is missing; please recreate the child profile."
         case .deliveryFailed:
             return "Could not deliver the video to any trusted families. Check your connection and try again."
         }

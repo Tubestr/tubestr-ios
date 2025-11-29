@@ -360,6 +360,7 @@ enum StorageModeError: Error {
         let videoShareCoordinator = VideoShareCoordinator(
             persistence: persistence,
             keyStore: keyStore,
+            identityManager: identityManager,
             videoSharePublisher: videoSharePublisher,
             marmotShareService: marmotShareService,
             parentalControlsStore: parentalControlsStore,

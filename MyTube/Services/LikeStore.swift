@@ -5,8 +5,9 @@
 //  Created by Assistant on 11/2/25.
 //
 
-import Foundation
+import Combine
 import CoreData
+import Foundation
 import OSLog
 
 /// A like record representing a like action on a video
@@ -62,7 +63,8 @@ class LikeStore: ObservableObject {
     private let persistenceController: PersistenceController
     private let logger = Logger(subsystem: "com.mytube", category: "LikeStore")
     private let childProfileStore: ChildProfileStore
-    
+    private var cancellables: Set<AnyCancellable> = []
+
     init(
         persistenceController: PersistenceController,
         childProfileStore: ChildProfileStore
@@ -72,6 +74,16 @@ class LikeStore: ObservableObject {
         Task {
             await loadLikes()
         }
+
+        // Subscribe to profile updates to refresh names on existing likes
+        childProfileStore.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    await self?.refreshNamesFromProfiles()
+                }
+            }
+            .store(in: &cancellables)
     }
     
     /// Check if the current user has liked a video
@@ -158,7 +170,7 @@ class LikeStore: ObservableObject {
             logger.error("Invalid video ID in like message: \(message.videoId)")
             return
         }
-        
+
         await recordLike(
             videoId: videoId,
             viewerChildNpub: message.viewerChild,
@@ -166,7 +178,63 @@ class LikeStore: ObservableObject {
             isLocalUser: false
         )
     }
-    
+
+    /// Refresh names on existing likes from ChildProfileStore.
+    /// Called when profiles are discovered/updated to fill in missing names.
+    func refreshNamesFromProfiles() async {
+        var updatedAny = false
+
+        for (videoId, records) in likeRecords {
+            var updatedRecords: [LikeRecord] = []
+            var videoUpdated = false
+
+            for record in records {
+                // Skip local user likes (they already show "You")
+                guard !record.isLocalUser else {
+                    updatedRecords.append(record)
+                    continue
+                }
+
+                // Skip likes that already have a name
+                if let existingName = record.viewerChildName, !existingName.isEmpty {
+                    updatedRecords.append(record)
+                    continue
+                }
+
+                // Try to look up name from ChildProfileStore
+                if let newName = await fetchChildName(for: record.viewerChildNpub), !newName.isEmpty {
+                    let updatedRecord = LikeRecord(
+                        id: record.id,
+                        videoId: record.videoId,
+                        viewerChildNpub: record.viewerChildNpub,
+                        viewerChildName: newName,
+                        timestamp: record.timestamp,
+                        isLocalUser: record.isLocalUser
+                    )
+                    updatedRecords.append(updatedRecord)
+                    videoUpdated = true
+                    logger.info("Updated like name for \(record.viewerChildNpub.prefix(8))... to '\(newName)'")
+                } else {
+                    updatedRecords.append(record)
+                }
+            }
+
+            if videoUpdated {
+                likeRecords[videoId] = updatedRecords
+                updatedAny = true
+
+                // Persist updated names to Core Data
+                for record in updatedRecords where record.viewerChildName != nil {
+                    await saveLike(record)
+                }
+            }
+        }
+
+        if updatedAny {
+            logger.info("Refreshed like names from updated profiles")
+        }
+    }
+
     private func normalizeKey(_ value: String) -> String {
         if let canonical = childProfileStore.canonicalKey(value) {
             return canonical

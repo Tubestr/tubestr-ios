@@ -13,20 +13,25 @@ struct ProfileModel: Identifiable, Hashable {
     var name: String
     var theme: ThemeDescriptor
     var avatarAsset: String
-    var mlsGroupId: String?
+    var mlsGroupIds: [String]
+
+    /// Convenience accessor for the first (primary) group ID, if any.
+    var primaryGroupId: String? {
+        mlsGroupIds.first
+    }
 
     init(
         id: UUID,
         name: String,
         theme: ThemeDescriptor,
         avatarAsset: String,
-        mlsGroupId: String? = nil
+        mlsGroupIds: [String] = []
     ) {
         self.id = id
         self.name = name
         self.theme = theme
         self.avatarAsset = avatarAsset
-        self.mlsGroupId = mlsGroupId
+        self.mlsGroupIds = mlsGroupIds
     }
 
     init?(entity: ProfileEntity) {
@@ -42,7 +47,7 @@ struct ProfileModel: Identifiable, Hashable {
             name: name,
             theme: theme,
             avatarAsset: avatarAsset,
-            mlsGroupId: entity.mlsGroupId
+            mlsGroupIds: entity.mlsGroupIds
         )
     }
 }

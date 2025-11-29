@@ -607,7 +607,7 @@ final class ParentZoneViewModel: ObservableObject {
             throw VideoSharePublisherError.invalidRecipientKey
         }
 
-        guard let groupId = identity.profile.mlsGroupId else {
+        guard let groupId = identity.profile.primaryGroupId else {
             throw GroupMembershipWorkflowError.groupIdentifierMissing
         }
 
@@ -685,7 +685,7 @@ final class ParentZoneViewModel: ObservableObject {
         for group in groups {
             
             // Check if any child is already linked to this group
-            let alreadyLinked = childIdentities.contains { $0.profile.mlsGroupId == group.mlsGroupId }
+            let alreadyLinked = childIdentities.contains { $0.profile.mlsGroupIds.contains(group.mlsGroupId) }
             if alreadyLinked {
                 continue
             }
@@ -877,39 +877,18 @@ final class ParentZoneViewModel: ObservableObject {
 
 
     func groupSummary(for child: ChildIdentityItem) -> GroupSummary? {
-        guard let groupId = child.profile.mlsGroupId else { return nil }
+        guard let groupId = child.profile.primaryGroupId else { return nil }
         return groupSummaries[groupId]
     }
     
     func groupSummaries(for child: ChildIdentityItem) -> [GroupSummary] {
-        
         // If there's only one child profile, show ALL groups (they all belong to this child)
         if childIdentities.count == 1 {
             return Array(groupSummaries.values).sorted { $0.name < $1.name }
         }
-        
-        // Multiple children: try to filter by description or primary group ID
-        for (id, summary) in groupSummaries {
-        }
-        
-        let childName = child.displayName
-        var matchingGroups: [GroupSummary] = []
-        
-        // Include the primary group (if set)
-        if let primaryGroupId = child.profile.mlsGroupId,
-           let primaryGroup = groupSummaries[primaryGroupId] {
-            matchingGroups.append(primaryGroup)
-        }
-        
-        // Also include groups whose description matches this child's name
-        for summary in groupSummaries.values {
-            if summary.description.contains("Secure sharing for \(childName)"),
-               !matchingGroups.contains(where: { $0.id == summary.id }) {
-                matchingGroups.append(summary)
-            }
-        }
-        
-        return matchingGroups.sorted { $0.name < $1.name }
+
+        // Multiple children: return groups this child is explicitly linked to
+        return child.profile.mlsGroupIds.compactMap { groupSummaries[$0] }.sorted { $0.name < $1.name }
     }
 
 
@@ -1175,12 +1154,8 @@ final class ParentZoneViewModel: ObservableObject {
         let response = try await environment.groupMembershipCoordinator.createGroup(request: request)
         let groupId = response.result.group.mlsGroupId
 
-        // Only update the Profile's mlsGroupId if it doesn't already have one
-        // (this keeps the first group as the "primary" group for legacy compatibility)
-        if identity.profile.mlsGroupId == nil {
-            try environment.profileStore.updateGroupId(groupId, forProfileId: identity.profile.id)
-        } else {
-        }
+        // Add this group to the profile's group list
+        try environment.profileStore.addGroupId(groupId, forProfileId: identity.profile.id)
 
         // Update UI on main thread FIRST, before triggering notifications
         await MainActor.run {
@@ -1503,9 +1478,35 @@ final class ParentZoneViewModel: ObservableObject {
         defer { isRefreshingPendingWelcomes = false }
         do {
             let welcomes = try await welcomeClient.getPendingWelcomes()
-            for (i, welcome) in welcomes.enumerated() {
+
+            // Get all groups from MDK and check which ones are functional (can query members)
+            let allGroups = try await environment.mdkActor.getGroups()
+            var functionalGroupIds: Set<String> = []
+            for group in allGroups {
+                do {
+                    let members = try await environment.mdkActor.getMembers(inGroup: group.mlsGroupId)
+                    if !members.isEmpty {
+                        functionalGroupIds.insert(group.mlsGroupId)
+                    }
+                } catch {
+                    // Group is not functional (can't query members) - don't filter its welcome
+                }
             }
-            pendingWelcomes = welcomes.map(PendingWelcomeItem.init)
+
+            logger.debug("refreshPendingWelcomes: \(welcomes.count) welcome(s), \(allGroups.count) group(s), \(functionalGroupIds.count) functional")
+            for welcome in welcomes {
+                let isFunctional = functionalGroupIds.contains(welcome.mlsGroupId)
+                logger.debug("  Welcome mlsGroupId=\(welcome.mlsGroupId.prefix(16))... isFunctional=\(isFunctional)")
+            }
+
+            // Only filter out welcomes for groups that are functional (can query members)
+            let filteredWelcomes = welcomes.filter { !functionalGroupIds.contains($0.mlsGroupId) }
+
+            if filteredWelcomes.count != welcomes.count {
+                logger.debug("Filtered out \(welcomes.count - filteredWelcomes.count) welcome(s) for functional groups")
+            }
+
+            pendingWelcomes = filteredWelcomes.map(PendingWelcomeItem.init)
         } catch {
             logger.error("Failed to load pending welcomes: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
@@ -1556,7 +1557,7 @@ final class ParentZoneViewModel: ObservableObject {
         // Link to specified child, or try auto-matching by name
         if let childId = linkToChildId {
             do {
-                try environment.profileStore.updateGroupId(welcome.mlsGroupId, forProfileId: childId)
+                try environment.profileStore.addGroupId(welcome.mlsGroupId, forProfileId: childId)
             } catch {
             }
         } else {
@@ -1596,61 +1597,27 @@ final class ParentZoneViewModel: ObservableObject {
         GroupNameFormatter.parentDisplayName(for: key, store: environment.parentProfileStore)
     }
     
+    /// Links a group to a child profile.
+    /// Since videos carry their own attribution (child npub), groups are just delivery containers.
+    /// For single-child families, all groups automatically belong to that child.
     private func tryLinkGroupToChildProfile(
         groupId: String,
         groupName: String,
         groupDescription: String? = nil
     ) async {
-        if let groupDescription {
-        }
-        
-        // Strategy 1: Try to match by explicit child name hints (group name or description)
-        var candidateNames: [String] = []
-        let trimmedName = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedName.hasSuffix(" Family") {
-            let childName = String(trimmedName.dropLast(" Family".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !childName.isEmpty {
-                candidateNames.append(childName)
-            }
-        }
-        if let description = groupDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
-            let lower = description.lowercased()
-            let prefix = "secure sharing for "
-            if let range = lower.range(of: prefix) {
-                let namePart = lower[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !namePart.isEmpty {
-                    candidateNames.append(namePart)
-                }
-            }
-        }
+        // If there's only one child profile, all groups belong to that child
+        guard let onlyChild = childIdentities.first else { return }
 
-        if let matchName = candidateNames.first,
-           let matchingChild = childIdentities.first(where: { $0.profile.name.lowercased() == matchName.lowercased() }) {
-            
-            if matchingChild.profile.mlsGroupId != nil {
-                return
+        // Skip if already linked
+        if onlyChild.profile.mlsGroupIds.contains(groupId) { return }
+
+        do {
+            try environment.profileStore.addGroupId(groupId, forProfileId: onlyChild.id)
+            await MainActor.run {
+                loadIdentities()
             }
-            
-            do {
-                try environment.profileStore.updateGroupId(groupId, forProfileId: matchingChild.id)
-                await MainActor.run {
-                    loadIdentities()
-                }
-                return
-            } catch {
-            }
-        }
-        
-        // Strategy 2: If no name match, link to first child without a group
-        if let unlinkedChild = childIdentities.first(where: { $0.profile.mlsGroupId == nil }) {
-            do {
-                try environment.profileStore.updateGroupId(groupId, forProfileId: unlinkedChild.id)
-                await MainActor.run {
-                    loadIdentities()
-                }
-            } catch {
-            }
-        } else {
+        } catch {
+            // Group linking failed, video attribution still works via npub in messages
         }
     }
 
@@ -1752,6 +1719,7 @@ final class ParentZoneViewModel: ObservableObject {
         do {
             if let groupId = mlsGroupId {
                 guard let group = try await self.environment.mdkActor.getGroup(mlsGroupId: groupId) else {
+                    logger.debug("refreshGroupSummaries: getGroup returned nil for \(groupId.prefix(16))...")
                     await MainActor.run {
                         self.groupSummaries.removeValue(forKey: groupId)
                     }
@@ -1764,14 +1732,20 @@ final class ParentZoneViewModel: ObservableObject {
                 }
             } else {
                 let groups = try await self.environment.mdkActor.getGroups()
+                logger.debug("refreshGroupSummaries: getGroups returned \(groups.count) group(s)")
                 var summaries: [String: GroupSummary] = [:]
                 for group in groups {
+                    logger.debug("  Group: \(group.mlsGroupId.prefix(16))... state=\(group.state)")
                     if let summary = await self.buildGroupSummary(group) {
                         summaries[group.mlsGroupId] = summary
+                        logger.debug("    -> Built summary OK")
+                    } else {
+                        logger.debug("    -> buildGroupSummary returned nil")
                     }
                 }
                 await MainActor.run {
                     self.groupSummaries = summaries
+                    self.logger.debug("refreshGroupSummaries: set \(summaries.count) summaries")
                 }
             }
         } catch {
@@ -1793,10 +1767,12 @@ final class ParentZoneViewModel: ObservableObject {
 
     private func buildGroupSummary(_ group: Group) async -> GroupSummary? {
         do {
+            logger.debug("buildGroupSummary: building for \(group.mlsGroupId.prefix(16))...")
             async let relaysTask = environment.mdkActor.getRelays(inGroup: group.mlsGroupId)
             async let membersTask = environment.mdkActor.getMembers(inGroup: group.mlsGroupId)
             let relays = try await relaysTask
             let members = try await membersTask
+            logger.debug("  relays=\(relays.count), members=\(members.count)")
             let lastMessage: Date?
             if let timestamp = group.lastMessageAt {
                 lastMessage = Date(timeIntervalSince1970: TimeInterval(timestamp))
@@ -1804,12 +1780,15 @@ final class ParentZoneViewModel: ObservableObject {
                 lastMessage = nil
             }
             let friendlyName = makeFriendlyGroupName(group: group, members: members)
+            // If we can query members, the group is functional - treat as "active"
+            // regardless of MDK's reported state (works around MDK state bug)
+            let effectiveState = members.isEmpty ? group.state : "active"
             return GroupSummary(
                 id: group.mlsGroupId,
                 name: group.name,
                 displayName: friendlyName,
                 description: group.description,
-                state: group.state,
+                state: effectiveState,
                 memberCount: members.count,
                 adminCount: group.adminPubkeys.count,
                 relayCount: relays.count,
@@ -1900,7 +1879,7 @@ final class ParentZoneViewModel: ObservableObject {
     }
 
     private func ensureChildGroup(for identity: ChildIdentity, preferredName: String) async throws {
-        guard identity.profile.mlsGroupId == nil else { return }
+        guard identity.profile.mlsGroupIds.isEmpty else { return }
 
         let parentIdentity = try ensureParentIdentityLoaded()
         let relays = await environment.relayDirectory.currentRelayURLs()
@@ -1936,13 +1915,13 @@ final class ParentZoneViewModel: ObservableObject {
         )
         let response = try await environment.groupMembershipCoordinator.createGroup(request: request)
         let groupId = response.result.group.mlsGroupId
-        try environment.profileStore.updateGroupId(groupId, forProfileId: identity.profile.id)
-        
+        try environment.profileStore.addGroupId(groupId, forProfileId: identity.profile.id)
+
         // Update UI on main thread
         await MainActor.run {
             loadIdentities()
         }
-        
+
         // Refresh the specific group summary
         await refreshGroupSummariesAsync(mlsGroupId: groupId)
         

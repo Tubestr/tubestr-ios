@@ -73,16 +73,14 @@ actor MdkActor {
             try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true, attributes: nil)
         }
 #if os(iOS)
-        try? fileManager.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: parentDirectory.path)
+        try? fileManager.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: parentDirectory.path)
 #endif
         do {
             mdk = try newMdk(dbPath: databaseURL.path)
             logger.debug("Initialized MDK database at \(databaseURL.path, privacy: .public)")
         } catch {
-            logger.error("MDK init failed, attempting reset: \(error.localizedDescription, privacy: .public)")
-            MdkActor.removeStoreFiles(at: databaseURL, fileManager: fileManager)
-            mdk = try newMdk(dbPath: databaseURL.path)
-            logger.debug("Recreated MDK database after reset at \(databaseURL.path, privacy: .public)")
+            logger.error("MDK init failed: \(error.localizedDescription, privacy: .public)")
+            throw error
         }
     }
 

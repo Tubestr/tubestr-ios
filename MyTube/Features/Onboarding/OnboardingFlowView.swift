@@ -1023,7 +1023,7 @@ extension OnboardingFlowView {
             parentIdentity: ParentIdentity,
             preferredName: String
         ) async throws {
-            guard identity.profile.mlsGroupId == nil else { return }
+            guard identity.profile.mlsGroupIds.isEmpty else { return }
 
             let relays = await environment.relayDirectory.currentRelayURLs()
             guard !relays.isEmpty else {
@@ -1058,7 +1058,7 @@ extension OnboardingFlowView {
             )
 
             let response = try await environment.groupMembershipCoordinator.createGroup(request: request)
-            try environment.profileStore.updateGroupId(
+            try environment.profileStore.addGroupId(
                 response.result.group.mlsGroupId,
                 forProfileId: identity.profile.id
             )

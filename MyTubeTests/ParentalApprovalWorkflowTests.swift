@@ -104,6 +104,8 @@ private func makeHarness() throws -> (
 
     let keyStore = KeychainKeyStore(service: "ParentalApprovalWorkflowTests.\(UUID().uuidString)")
     let parentPair = try keyStore.ensureParentKeyPair()
+    let profileStore = ProfileStore(persistence: persistence)
+    let identityManager = IdentityManager(keyStore: keyStore, profileStore: profileStore)
     let cryptoService = CryptoEnvelopeService()
     let storageClient = StubStorageClient()
     let videoSharePublisher = VideoSharePublisher(
@@ -123,6 +125,7 @@ private func makeHarness() throws -> (
     let shareCoordinator = VideoShareCoordinator(
         persistence: persistence,
         keyStore: keyStore,
+        identityManager: identityManager,
         videoSharePublisher: videoSharePublisher,
         marmotShareService: marmotShareService,
         parentalControlsStore: parentalControlsStore,
@@ -136,7 +139,9 @@ private func makeHarness() throws -> (
     profile.name = "Child"
     profile.theme = ThemeDescriptor.ocean.rawValue
     profile.avatarAsset = ThemeDescriptor.ocean.defaultAvatarAsset
-    profile.mlsGroupId = "group-\(UUID().uuidString)"
+    let testGroupId = "group-\(UUID().uuidString)"
+    profile.mlsGroupId = testGroupId
+    profile.mlsGroupIds = [testGroupId]
     try persistence.viewContext.save()
 
     return (

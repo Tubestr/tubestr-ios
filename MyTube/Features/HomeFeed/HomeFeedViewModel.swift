@@ -273,6 +273,7 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
         let groupNames: [String: String]  // mlsGroupId -> display name
         let memberToGroup: [String: String]  // parent pubkey -> mlsGroupId
         let parentNames: [String: String]  // parent pubkey -> display name
+        let childNames: [String: String]  // child npub/hex -> display name (from kind 0)
     }
     
     private func buildDisplayContext(environment: AppEnvironment) async -> DisplayContext {
@@ -318,12 +319,24 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
             }
         }
 
+        // Build child names lookup from kind 0 metadata (ChildProfileStore)
+        var childNames: [String: String] = [:]
+        if let childProfiles = try? environment.childProfileStore.allProfiles() {
+            for profile in childProfiles {
+                if let name = profile.bestName {
+                    let key = profile.publicKey.lowercased()
+                    childNames[key] = name
+                }
+            }
+        }
+
         return DisplayContext(
             localProfileIds: localProfileIds,
             localParentKey: localParentKey,
             groupNames: groupNames,
             memberToGroup: memberToGroup,
-            parentNames: parentNames
+            parentNames: parentNames,
+            childNames: childNames
         )
     }
     
@@ -377,7 +390,9 @@ final class HomeFeedViewModel: NSObject, ObservableObject {
             return "My Videos"
         }
 
-        if let childName = trimmed(metadata?.childName) {
+        // Look up child name from kind 0 metadata (ChildProfileStore)
+        let canonicalOwner = canonicalOwnerKey(for: model.ownerChild)?.lowercased() ?? ownerIdNormalized
+        if let childName = context.childNames[canonicalOwner] {
             return childName
         }
 

@@ -213,6 +213,13 @@ actor MarmotProjectionStore {
             mlsGroupId: mlsGroupId
         )
         logger.info("         ✅ Video share projected to RemoteVideoStore: \(model.id)")
+
+        // Notify SyncCoordinator about the discovered child key for kind 0 metadata fetch
+        notificationCenter.post(
+            name: .remoteChildKeyDiscovered,
+            object: nil,
+            userInfo: ["childKey": message.ownerChild]
+        )
     }
 
     private func projectLifecycle(
@@ -239,6 +246,13 @@ actor MarmotProjectionStore {
         }
         let message = try decoder.decode(LikeMessage.self, from: data)
         await likeStore.processIncomingLike(message)
+
+        // Notify SyncCoordinator about the discovered child key for kind 0 metadata fetch
+        notificationCenter.post(
+            name: .remoteChildKeyDiscovered,
+            object: nil,
+            userInfo: ["childKey": message.viewerChild]
+        )
     }
 
     private func projectReport(content: String, processedAt: Date) async throws {

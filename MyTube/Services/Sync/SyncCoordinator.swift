@@ -31,6 +31,10 @@ actor SyncCoordinator {
     private var trackedKeySnapshot: Set<String> = []
     private var trackedParentKey: String?
     private let subscriptionToken = "mytube.primary.sync"
+    /// Remote child keys discovered from video shares and likes (ownerChild, viewerChild npubs).
+    /// These are added to the metadata subscription to fetch their kind 0 profiles.
+    private var discoveredRemoteChildKeys: Set<String> = []
+    private var childKeyObserver: NSObjectProtocol?
 
     init(
         persistence: PersistenceController,
@@ -77,6 +81,16 @@ actor SyncCoordinator {
         guard state == .idle else { return }
         state = .running
 
+        // Observe discovered child keys from video shares and likes
+        childKeyObserver = NotificationCenter.default.addObserver(
+            forName: .remoteChildKeyDiscovered,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let childKey = notification.userInfo?["childKey"] as? String else { return }
+            Task { await self?.registerDiscoveredChildKey(childKey) }
+        }
+
         do {
             let relays = await relayDirectory.currentRelayURLs()
             if !relays.isEmpty {
@@ -113,6 +127,10 @@ actor SyncCoordinator {
         primarySubscriptionId = nil
         trackedKeySnapshot.removeAll()
         trackedParentKey = nil
+        if let observer = childKeyObserver {
+            NotificationCenter.default.removeObserver(observer)
+            childKeyObserver = nil
+        }
         await nostrClient.disconnect()
     }
 
@@ -122,6 +140,28 @@ actor SyncCoordinator {
 
     func refreshSubscriptions() async {
         await ensurePrimarySubscription(force: true)
+    }
+
+    /// Register a remote child key discovered from video shares or likes.
+    /// This adds the key to the metadata subscription to fetch their kind 0 profile.
+    func registerDiscoveredChildKey(_ key: String) async {
+        guard let canonical = childProfileStore.canonicalKey(key) else {
+            logger.debug("Invalid child key format, skipping: \(key.prefix(16))...")
+            return
+        }
+
+        // Skip if we already have a profile for this key
+        if let existingProfile = try? childProfileStore.profile(for: canonical),
+           existingProfile.bestName != nil {
+            return
+        }
+
+        let wasNew = discoveredRemoteChildKeys.insert(canonical).inserted
+        if wasNew {
+            logger.info("Registered new remote child key for metadata sync: \(canonical.prefix(16))...")
+            // Trigger subscription refresh to include new key
+            await ensurePrimarySubscription(force: true)
+        }
     }
 
     private func consumeEvents() async {
@@ -175,10 +215,11 @@ actor SyncCoordinator {
 
         var metadataKeySet = snapshot.remoteParentKeys
         metadataKeySet.formUnion(snapshot.childKeys)
+        metadataKeySet.formUnion(self.discoveredRemoteChildKeys)  // Include discovered child keys from video shares/likes
         if let parentHex {
             metadataKeySet.insert(parentHex)
         }
-        logger.debug("📋 Subscription keys: parent=\(parentHex?.prefix(16) ?? "none"), remote=\(snapshot.remoteParentKeys.count), children=\(snapshot.childKeys.count)")
+        logger.debug("📋 Subscription keys: parent=\(parentHex?.prefix(16) ?? "none"), remote=\(snapshot.remoteParentKeys.count), children=\(snapshot.childKeys.count), discovered=\(self.discoveredRemoteChildKeys.count)")
         for remoteKey in snapshot.remoteParentKeys.prefix(3) {
             logger.debug("   Remote parent: \(remoteKey.prefix(16))...")
         }

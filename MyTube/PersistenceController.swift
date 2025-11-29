@@ -197,6 +197,7 @@ struct SampleDataSeeder {
         profile.theme = ThemeDescriptor.ocean.rawValue
         profile.avatarAsset = "avatar.dolphin"
         profile.mlsGroupId = nil
+        profile.mlsGroupIdsJSON = "[]"
 
         let video = VideoEntity(context: context)
         video.id = UUID()

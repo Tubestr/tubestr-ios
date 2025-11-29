@@ -203,6 +203,7 @@ private func makeOnboardingTestEnvironment() throws -> OnboardingTestHarness {
     let videoShareCoordinator = VideoShareCoordinator(
         persistence: persistence,
         keyStore: keyStore,
+        identityManager: identityManager,
         videoSharePublisher: videoSharePublisher,
         marmotShareService: marmotShareService,
         parentalControlsStore: parentalControlsStore,

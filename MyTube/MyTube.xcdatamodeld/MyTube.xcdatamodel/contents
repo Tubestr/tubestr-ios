@@ -12,6 +12,7 @@
         <attribute name="name" optional="NO" attributeType="String"/>
         <attribute name="theme" optional="NO" attributeType="String"/>
         <attribute name="mlsGroupId" optional="YES" attributeType="String"/>
+        <attribute name="mlsGroupIdsJSON" optional="YES" attributeType="String" defaultValueString="[]"/>
     </entity>
     <entity name="RankingState" representedClassName="RankingStateEntity" syncable="YES" codeGenerationType="class">
         <attribute name="exploreRate" optional="NO" attributeType="Double" defaultValueString="0.15"/>

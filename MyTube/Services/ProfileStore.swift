@@ -37,6 +37,7 @@ final class ProfileStore: ObservableObject {
         entity.theme = theme.rawValue
         entity.avatarAsset = avatarAsset
         entity.mlsGroupId = nil
+        entity.mlsGroupIdsJSON = "[]"
         try persistence.viewContext.save()
         guard let model = ProfileModel(entity: entity) else {
             throw ProfileStoreError.entityMissing
@@ -54,18 +55,31 @@ final class ProfileStore: ObservableObject {
         entity.name = model.name
         entity.theme = model.theme.rawValue
         entity.avatarAsset = model.avatarAsset
-        entity.mlsGroupId = model.mlsGroupId
+        entity.mlsGroupIds = model.mlsGroupIds
         try persistence.viewContext.save()
     }
 
-    func updateGroupId(_ groupId: String?, forProfileId profileId: UUID) throws {
+    /// Adds a group ID to the profile if not already present.
+    func addGroupId(_ groupId: String, forProfileId profileId: UUID) throws {
         let request = ProfileEntity.fetchRequest()
         request.predicate = NSPredicate(format: "id == %@", profileId as CVarArg)
         request.fetchLimit = 1
         guard let entity = try persistence.viewContext.fetch(request).first else {
             throw ProfileStoreError.entityMissing
         }
-        entity.mlsGroupId = groupId
+        entity.addGroupId(groupId)
+        try persistence.viewContext.save()
+    }
+
+    /// Removes a group ID from the profile if present.
+    func removeGroupId(_ groupId: String, forProfileId profileId: UUID) throws {
+        let request = ProfileEntity.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", profileId as CVarArg)
+        request.fetchLimit = 1
+        guard let entity = try persistence.viewContext.fetch(request).first else {
+            throw ProfileStoreError.entityMissing
+        }
+        entity.removeGroupId(groupId)
         try persistence.viewContext.save()
     }
 }
