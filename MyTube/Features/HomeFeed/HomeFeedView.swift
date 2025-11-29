@@ -36,26 +36,18 @@ struct HomeFeedView: View {
                 await viewModel.refresh()
             }
             .background(KidAppBackground())
-            .navigationTitle("For \(appEnvironment.activeProfile.name)")
+            .standardToolbar(showLogo: true)
         }
-        .sheet(item: $selectedVideo) { rankedVideo in
+        .fullScreenCover(item: $selectedVideo) { rankedVideo in
             PlayerView(rankedVideo: rankedVideo, environment: appEnvironment)
-                .presentationDetents([.fraction(0.92), .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(32)
-                .presentationSizingPageIfAvailable()
         }
-        .sheet(
+        .fullScreenCover(
             item: Binding(
                 get: { viewModel.presentedRemoteVideo },
                 set: { viewModel.presentedRemoteVideo = $0 }
             )
         ) { remoteVideo in
-            RemoteVideoPlayerView(video: remoteVideo, environment: appEnvironment)
-                .presentationDetents([.fraction(0.92), .large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(32)
-                .presentationSizingPageIfAvailable()
+            PlayerView(remoteVideo: remoteVideo, environment: appEnvironment)
         }
         .onAppear {
             viewModel.bind(to: appEnvironment)

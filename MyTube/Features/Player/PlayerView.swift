@@ -15,135 +15,223 @@ struct PlayerView: View {
     @State private var showingReportSheet = false
     @State private var showingPublishPIN = false
 
+    /// Initialize with a local video
     init(rankedVideo: RankingEngine.RankedVideo, environment: AppEnvironment) {
         self.environment = environment
         _viewModel = StateObject(wrappedValue: PlayerViewModel(rankedVideo: rankedVideo, environment: environment))
     }
+    
+    /// Initialize with a remote video
+    init(remoteVideo: HomeFeedViewModel.SharedRemoteVideo, environment: AppEnvironment) {
+        self.environment = environment
+        _viewModel = StateObject(wrappedValue: PlayerViewModel(remoteVideo: remoteVideo, environment: environment))
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
+        let palette = environment.activeProfile.theme.kidPalette
+        
+        ZStack {
+            // Background
+            Color.black.ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header
                 HStack(spacing: 12) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    
+                    Spacer()
+                    
                     if viewModel.shouldShowPublishAction {
                         Button {
                             showingPublishPIN = true
                         } label: {
-                            HStack(spacing: 8) {
-                                if viewModel.isPublishing {
-                                    ProgressView()
-                                        .tint(Color.accentColor)
-                                } else {
-                                    Image(systemName: "paperplane.fill")
-                                }
-                                Text("Publish")
-                                    .fontWeight(.semibold)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(Color.accentColor.opacity(0.15), in: Capsule())
-                            .foregroundStyle(Color.accentColor)
+                            Label(viewModel.isPublishing ? "Publishing..." : "Publish", systemImage: "paperplane.fill")
+                                .font(.subheadline.bold())
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(palette.accent, in: Capsule())
+                                .foregroundStyle(.white)
                         }
                         .disabled(viewModel.isPublishing)
                     }
-                    Spacer()
+                    
                     ReportButtonChip {
                         viewModel.reportError = nil
                         showingReportSheet = true
                     }
                 }
-
-                VideoPlayer(player: viewModel.player)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 540)
-                    .background(Color.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(viewModel.video.title)
-                        .font(.title.bold())
-                    ProgressView(value: viewModel.progress)
-                        .tint(Color.accentColor)
-
-                    HStack(spacing: 24) {
-                        PlaybackControlButton(systemName: viewModel.video.liked ? "heart.fill" : "heart") {
-                            viewModel.toggleLike()
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                
+                Spacer()
+                
+                // Video Area
+                videoPlayerArea
+                    .padding(.horizontal)
+                
+                Spacer()
+                
+                // Bottom Controls
+                VStack(spacing: 20) {
+                    // Title and Likes
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(viewModel.title)
+                                .font(.title3.bold())
+                                .foregroundStyle(.white)
+                                .lineLimit(2)
+                            
+                            Text(viewModel.subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
                         }
-                        PlaybackControlButton(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill") {
-                            viewModel.togglePlayPause()
-                        }
-                        PlaybackControlButton(systemName: "xmark") {
-                            dismiss()
+                        
+                        Spacer()
+                        
+                        if viewModel.canLike {
+                            Button {
+                                HapticService.selection()
+                                viewModel.toggleLike()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: viewModel.isLiked ? "heart.fill" : "heart")
+                                        .font(.title2)
+                                        .foregroundStyle(viewModel.isLiked ? Color.pink : .white)
+                                    
+                                    if viewModel.likeCount > 0 {
+                                        Text("\(viewModel.likeCount)")
+                                            .font(.caption2.bold())
+                                            .foregroundStyle(.white.opacity(0.8))
+                                    }
+                                }
+                                .padding(12)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            }
                         }
                     }
-                    .font(.title2)
-
-                    PlaybackLikeSummaryView(
-                        likeCount: viewModel.likeCount,
-                        records: viewModel.likeRecords
-                    )
-
-                    PlaybackMetricRow(
-                        accent: environment.activeProfile.theme.kidPalette.accent,
-                        plays: viewModel.video.playCount,
-                        completionRate: viewModel.video.completionRate,
-                        replayRate: viewModel.video.replayRate
-                    )
+                    
+                    // Scrubber
+                    HStack(spacing: 12) {
+                        Text(timeString(viewModel.progress * viewModel.duration))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.8))
+                        
+                        ProgressView(value: viewModel.progress)
+                            .tint(palette.accent)
+                        
+                        Text(viewModel.formattedDuration)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+                    
+                    // Playback Controls
+                    HStack(spacing: 40) {
+                        Button {
+                            viewModel.player?.seek(to: .zero)
+                        } label: {
+                            Image(systemName: "backward.end.fill")
+                                .font(.title2)
+                                .foregroundStyle(.white)
+                        }
+                        .disabled(viewModel.player == nil)
+                        
+                        Button {
+                            viewModel.togglePlayPause()
+                        } label: {
+                            Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.system(size: 56))
+                                .foregroundStyle(.white)
+                                .shadow(radius: 10)
+                        }
+                        .disabled(viewModel.player == nil)
+                        
+                        // Placeholder for next/loop if needed, or just spacer
+                        Image(systemName: "forward.end.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.3)) // Disabled look
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
+                .background(
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .mask(LinearGradient(colors: [.black, .black.opacity(0)], startPoint: .bottom, endPoint: .top))
+                        .ignoresSafeArea()
+                        .padding(.top, -40) // Fade effect
+                )
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 32)
-            .padding(.bottom, 48)
         }
-        .background(KidAppBackground())
         .onAppear { viewModel.onAppear() }
         .onDisappear { viewModel.onDisappear() }
         .sheet(isPresented: $showingReportSheet) {
             ReportAbuseSheet(
-                allowsRelationshipActions: false,
+                allowsRelationshipActions: !viewModel.source.isLocal,
                 isSubmitting: viewModel.isReporting,
-                errorMessage: Binding(
-                    get: { viewModel.reportError },
-                    set: { viewModel.reportError = $0 }
-                ),
+                errorMessage: $viewModel.reportError,
                 onSubmit: { reason, note, action in
-                    Task { await viewModel.reportVideo(reason: reason, note: note, action: action) }
+                    Task {
+                        await viewModel.reportVideo(reason: reason, note: note, action: action)
+                    }
                 },
                 onCancel: {
-                    viewModel.resetReportState()
                     showingReportSheet = false
                 }
             )
-            .presentationDetents([.medium, .large])
-        }
-        .onChange(of: viewModel.reportSuccess) { success in
-            if success {
-                showingReportSheet = false
-                dismiss()
-                viewModel.resetReportState()
-            }
-        }
-        .alert(
-            "Couldn't update like",
-            isPresented: Binding(
-                get: { viewModel.likeError != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        viewModel.clearLikeError()
-                    }
-                }
-            )
-        ) {
-            Button("OK", role: .cancel) {
-                viewModel.clearLikeError()
-            }
-        } message: {
-            Text(viewModel.likeError ?? "Something went wrong.")
         }
         .sheet(isPresented: $showingPublishPIN) {
-            PINPromptView(title: "Publish Video") { pin in
+            PINPromptView(title: "Ask Parent to Publish") { pin in
                 try await viewModel.publishPendingVideo(pin: pin)
             }
         }
+    }
+    
+    @ViewBuilder
+    private var videoPlayerArea: some View {
+        if let player = viewModel.player {
+            VideoPlayer(player: player)
+                .aspectRatio(16/9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
+        } else {
+            // Loading or error state for remote videos
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.1))
+                .aspectRatio(16/9, contentMode: .fit)
+                .overlay(
+                    VStack(spacing: 12) {
+                        if let error = viewModel.playbackError {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.orange)
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        } else {
+                            ProgressView()
+                                .tint(.white)
+                            Text("Loading...")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
+                    }
+                )
+        }
+    }
+    
+    private func timeString(_ seconds: TimeInterval) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.minute, .second]
+        formatter.zeroFormattingBehavior = .pad
+        return formatter.string(from: seconds) ?? "0:00"
     }
 }

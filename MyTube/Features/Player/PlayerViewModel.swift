@@ -10,9 +10,70 @@ import Combine
 import Foundation
 import OSLog
 
+/// Unified video source for the player - supports both local and remote videos
+enum VideoSource {
+    case local(RankingEngine.RankedVideo)
+    case remote(HomeFeedViewModel.SharedRemoteVideo)
+    
+    var title: String {
+        switch self {
+        case .local(let ranked): return ranked.video.title
+        case .remote(let shared): return shared.video.title
+        }
+    }
+    
+    var duration: TimeInterval {
+        switch self {
+        case .local(let ranked): return ranked.video.duration
+        case .remote(let shared): return shared.video.duration
+        }
+    }
+    
+    var createdAt: Date {
+        switch self {
+        case .local(let ranked): return ranked.video.createdAt
+        case .remote(let shared): return shared.video.createdAt
+        }
+    }
+    
+    var isLocal: Bool {
+        if case .local = self { return true }
+        return false
+    }
+    
+    var localVideo: VideoModel? {
+        if case .local(let ranked) = self { return ranked.video }
+        return nil
+    }
+    
+    var remoteVideo: HomeFeedViewModel.SharedRemoteVideo? {
+        if case .remote(let shared) = self { return shared }
+        return nil
+    }
+    
+    var videoIdString: String {
+        switch self {
+        case .local(let ranked): return ranked.video.id.uuidString
+        case .remote(let shared): return shared.video.id
+        }
+    }
+    
+    var subtitle: String {
+        switch self {
+        case .local(let ranked):
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            return formatter.string(from: ranked.video.createdAt)
+        case .remote(let shared):
+            return "Shared by \(shared.ownerDisplayName)"
+        }
+    }
+}
+
 @MainActor
 final class PlayerViewModel: ObservableObject {
-    @Published private(set) var video: VideoModel
+    @Published private(set) var video: VideoModel?
+    @Published private(set) var remoteVideo: HomeFeedViewModel.SharedRemoteVideo?
     @Published private(set) var isPlaying = false
     @Published private(set) var progress: Double = 0
     @Published private(set) var likeCount: Int = 0
@@ -22,11 +83,13 @@ final class PlayerViewModel: ObservableObject {
     @Published var isReporting = false
     @Published var reportSuccess = false
     @Published private(set) var isPublishing = false
+    @Published private(set) var playbackError: String?
 
-    var player: AVPlayer { internalPlayer }
+    let source: VideoSource
+    var player: AVPlayer? { internalPlayer }
 
     private let environment: AppEnvironment
-    private var internalPlayer: AVPlayer
+    private var internalPlayer: AVPlayer?
     private var timeObserver: Any?
     private var completionObserver: Any?
     private var didCompletePlayback = false
@@ -38,15 +101,49 @@ final class PlayerViewModel: ObservableObject {
     private var cachedParentKey: String?
 
     var shouldShowPublishAction: Bool {
-        video.approvalStatus == .pending
+        guard let video else { return false }
+        return video.approvalStatus == .pending
+    }
+    
+    var title: String { source.title }
+    var duration: TimeInterval { source.duration }
+    var subtitle: String { source.subtitle }
+    var isLiked: Bool { video?.liked ?? false }
+    var canLike: Bool { source.isLocal }
+    
+    var formattedDuration: String {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = duration >= 3600 ? [.hour, .minute, .second] : [.minute, .second]
+        formatter.unitsStyle = .positional
+        formatter.zeroFormattingBehavior = .pad
+        return formatter.string(from: duration) ?? "--:--"
     }
 
-    init(rankedVideo: RankingEngine.RankedVideo, environment: AppEnvironment) {
-        self.video = rankedVideo.video
+    init(source: VideoSource, environment: AppEnvironment) {
+        self.source = source
         self.environment = environment
-        let url = environment.videoLibrary.videoFileURL(for: rankedVideo.video)
-        self.internalPlayer = AVPlayer(url: url)
+        
+        switch source {
+        case .local(let ranked):
+            self.video = ranked.video
+            let url = environment.videoLibrary.videoFileURL(for: ranked.video)
+            self.internalPlayer = AVPlayer(url: url)
+        case .remote(let shared):
+            self.remoteVideo = shared
+            // Player will be set up in onAppear after checking file exists
+        }
+        
         setupBindings()
+    }
+    
+    /// Convenience initializer for local videos (backwards compatibility)
+    convenience init(rankedVideo: RankingEngine.RankedVideo, environment: AppEnvironment) {
+        self.init(source: .local(rankedVideo), environment: environment)
+    }
+    
+    /// Convenience initializer for remote videos
+    convenience init(remoteVideo: HomeFeedViewModel.SharedRemoteVideo, environment: AppEnvironment) {
+        self.init(source: .remote(remoteVideo), environment: environment)
     }
 
     private func setupBindings() {
@@ -69,31 +166,52 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func onAppear() {
+        // For remote videos, set up player if not already done
+        if case .remote(let shared) = source, internalPlayer == nil {
+            prepareRemotePlayer(for: shared)
+        }
         attachObservers()
         play()
     }
 
     func onDisappear() {
         detachObservers()
-        if !didCompletePlayback {
-            Task {
-                try? await environment.videoLibrary.recordFeedback(videoId: video.id, action: .skip)
-                let update = PlaybackMetricUpdate(
-                    videoId: video.id,
-                    playCountDelta: 1,
-                    completionRate: progress,
-                    replayRate: video.replayRate,
-                    liked: nil,
-                    hidden: nil,
-                    lastPlayedAt: Date()
-                )
-                if let updated = try? await environment.videoLibrary.updateMetrics(update) {
-                    await MainActor.run {
-                        self.video = updated
-                    }
+        
+        // Only record playback metrics for local videos
+        guard let video, !didCompletePlayback else { return }
+        
+        Task {
+            try? await environment.videoLibrary.recordFeedback(videoId: video.id, action: .skip)
+            let update = PlaybackMetricUpdate(
+                videoId: video.id,
+                playCountDelta: 1,
+                completionRate: progress,
+                replayRate: video.replayRate,
+                liked: nil,
+                hidden: nil,
+                lastPlayedAt: Date()
+            )
+            if let updated = try? await environment.videoLibrary.updateMetrics(update) {
+                await MainActor.run {
+                    self.video = updated
                 }
             }
         }
+    }
+    
+    private func prepareRemotePlayer(for shared: HomeFeedViewModel.SharedRemoteVideo) {
+        guard let url = shared.video.localMediaURL(root: environment.storagePaths.rootURL) else {
+            playbackError = "Video file not found."
+            return
+        }
+        
+        if !FileManager.default.fileExists(atPath: url.path) {
+            playbackError = "Video not downloaded."
+            return
+        }
+        
+        let item = AVPlayerItem(url: url)
+        internalPlayer = AVPlayer(playerItem: item)
     }
 
     func togglePlayPause() {
@@ -105,13 +223,17 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func toggleLike() {
+        guard let video else {
+            likeError = "Cannot like remote videos."
+            return
+        }
         guard let viewerKeyHex = viewerPublicKeyHex else {
             likeError = "Set up a child identity before liking videos."
             logger.error("Like toggle requested without child identity.")
             return
         }
         let targetState = !environment.likeStore.hasLiked(videoId: video.id, viewerChildNpub: viewerKeyHex)
-        video.liked = targetState
+        self.video?.liked = targetState
         let viewerNpub = viewerChildNpub ?? viewerKeyHex
         let displayName = viewerDisplayName
 
@@ -149,7 +271,7 @@ final class PlayerViewModel: ObservableObject {
 
                 if let error = publishError {
                     if let likeError = error as? LikePublisherError, likeError == .missingVideoOwner {
-                        logger.info("Skipping Nostr publish for video \(self.video.id); owner not found.")
+                        logger.info("Skipping Nostr publish for video \(video.id); owner not found.")
                     } else {
                         throw error
                     }
@@ -178,11 +300,11 @@ final class PlayerViewModel: ObservableObject {
                 }
 
                 await MainActor.run {
-                    self.video.liked = !targetState
+                    self.video?.liked = !targetState
                     self.refreshLikes()
                     self.likeError = error.displayMessage
                 }
-                logger.error("Failed to toggle like for video \(self.video.id): \(error.localizedDescription, privacy: .public)")
+                logger.error("Failed to toggle like for video \(video.id): \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -192,7 +314,7 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func publishPendingVideo(pin: String) async throws {
-        guard shouldShowPublishAction else { return }
+        guard let video, shouldShowPublishAction else { return }
         guard try environment.parentAuth.validate(pin: pin) else {
             throw ParentAuthError.invalidPIN
         }
@@ -207,9 +329,9 @@ final class PlayerViewModel: ObservableObject {
 
         do {
             try await environment.videoShareCoordinator.publishVideo(video.id)
-            video.approvalStatus = .approved
-            video.approvedAt = Date()
-            video.approvedByParentKey = parentKey
+            self.video?.approvalStatus = .approved
+            self.video?.approvedAt = Date()
+            self.video?.approvedByParentKey = parentKey
         } catch {
             throw error
         }
@@ -229,18 +351,21 @@ final class PlayerViewModel: ObservableObject {
 
         do {
             _ = try await environment.reportCoordinator.submitReport(
-                videoId: video.id.uuidString,
+                videoId: source.videoIdString,
                 subjectChild: subjectChild,
                 reason: reason,
                 note: noteValue,
                 action: action
             )
 
-            if let updated = try? await environment.videoLibrary.markVideoReported(
-                videoId: video.id,
-                reason: reason
-            ) {
-                video = updated
+            // Only update local video if it's a local source
+            if let video {
+                if let updated = try? await environment.videoLibrary.markVideoReported(
+                    videoId: video.id,
+                    reason: reason
+                ) {
+                    self.video = updated
+                }
             }
 
             reportSuccess = true
@@ -258,23 +383,25 @@ final class PlayerViewModel: ObservableObject {
     }
 
     private func play() {
-        internalPlayer.play()
+        internalPlayer?.play()
         isPlaying = true
     }
 
     private func pause() {
-        internalPlayer.pause()
+        internalPlayer?.pause()
         isPlaying = false
     }
 
     private func attachObservers() {
+        guard let internalPlayer else { return }
         detachObservers()
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let videoDuration = duration
         timeObserver = internalPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self else { return }
-            let duration = self.internalPlayer.currentItem?.duration.seconds ?? self.video.duration
-            guard duration > 0 else { return }
-            self.progress = min(max(time.seconds / duration, 0), 1)
+            let currentDuration = self.internalPlayer?.currentItem?.duration.seconds ?? videoDuration
+            guard currentDuration > 0 else { return }
+            self.progress = min(max(time.seconds / currentDuration, 0), 1)
         }
 
         completionObserver = NotificationCenter.default.addObserver(
@@ -287,7 +414,7 @@ final class PlayerViewModel: ObservableObject {
     }
 
     private func detachObservers() {
-        if let timeObserver {
+        if let timeObserver, let internalPlayer {
             internalPlayer.removeTimeObserver(timeObserver)
         }
         timeObserver = nil
@@ -299,13 +426,19 @@ final class PlayerViewModel: ObservableObject {
     }
 
     private func refreshLikes() {
+        guard let video else {
+            likeRecords = []
+            likeCount = 0
+            return
+        }
+        
         let records = environment.likeStore.likes(for: video.id)
         likeRecords = records
         likeCount = records.count
 
         if let viewerKeyHex = viewerPublicKeyHex {
             let hasLiked = environment.likeStore.hasLiked(videoId: video.id, viewerChildNpub: viewerKeyHex)
-            video.liked = hasLiked
+            self.video?.liked = hasLiked
         }
     }
 
@@ -330,12 +463,25 @@ final class PlayerViewModel: ObservableObject {
     }
 
     private func reportSubjectChild() -> String {
-        ""
+        if let remoteVideo {
+            return remoteVideo.video.ownerChild
+        }
+        return ""
     }
 
     private func handleCompletion() {
         didCompletePlayback = true
         progress = 1.0
+        
+        // For remote videos, just loop without tracking metrics
+        guard let video else {
+            Task { @MainActor in
+                self.internalPlayer?.seek(to: .zero)
+                self.play()
+            }
+            return
+        }
+        
         Task {
             try? await environment.videoLibrary.recordFeedback(videoId: video.id, action: .replay)
             let update = PlaybackMetricUpdate(
@@ -353,7 +499,7 @@ final class PlayerViewModel: ObservableObject {
                 }
             }
             await MainActor.run {
-                self.internalPlayer.seek(to: .zero)
+                self.internalPlayer?.seek(to: .zero)
                 self.play()
             }
         }

@@ -41,9 +41,9 @@ struct EditorHubView: View {
             }
             .buttonStyle(.plain)
         }
-        .navigationTitle("Editor")
         .scrollContentBackground(.hidden)
         .background(KidAppBackground())
+        .standardToolbar(showLogo: false)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: viewModel.loadVideos) {

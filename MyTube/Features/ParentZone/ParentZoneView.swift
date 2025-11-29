@@ -158,7 +158,7 @@ struct ParentZoneView: View {
                     lockView
                 }
             }
-            .navigationTitle("Parent Zone")
+            .standardToolbar(showLogo: false)
         }
         .sheet(isPresented: Binding(
             get: { sharePayload != nil },
@@ -1211,6 +1211,14 @@ private extension ParentZoneView {
                     Label("Reset App", systemImage: "arrow.counterclockwise.circle")
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
+            }
+
+            Section {
+                Text(AppVersionFormatter.formatted)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .listRowBackground(Color.clear)
             }
         }
     }

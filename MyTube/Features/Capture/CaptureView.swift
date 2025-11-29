@@ -106,7 +106,7 @@ struct CaptureView: View {
                 viewModel.toggleRecording()
             }
             .disabled(!viewModel.isSessionReady)
-            .padding(.bottom, 32)
+            .padding(.bottom, 56)
         }
         .frame(maxWidth: .infinity)
     }
@@ -141,15 +141,33 @@ private struct RecordButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Circle()
-                .strokeBorder(.white.opacity(0.85), lineWidth: 4)
-                .frame(width: 86, height: 86)
-                .overlay(
-                    RoundedRectangle(cornerRadius: isRecording ? 12 : 43, style: .continuous)
-                        .fill(isRecording ? Color.red : Color.red.opacity(0.92))
-                        .frame(width: isRecording ? 42 : 70, height: isRecording ? 42 : 70)
-                )
+        Button {
+            if isRecording {
+                HapticService.success()
+            } else {
+                HapticService.medium()
+            }
+            action()
+        } label: {
+            ZStack {
+                // Outer ring
+                Circle()
+                    .strokeBorder(.white, lineWidth: 4)
+                    .frame(width: 80, height: 80)
+                    .background(
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .opacity(0.5)
+                    )
+                    .scaleEffect(isRecording ? 1.1 : 1.0)
+                
+                // Inner recording shape
+                RoundedRectangle(cornerRadius: isRecording ? 8 : 35, style: .continuous)
+                    .fill(isRecording ? Color.red : Color.red.opacity(0.9))
+                    .frame(width: isRecording ? 32 : 68, height: isRecording ? 32 : 68)
+                    .shadow(color: .red.opacity(0.4), radius: isRecording ? 8 : 0)
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isRecording)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isRecording ? "Stop Recording" : "Start Recording")

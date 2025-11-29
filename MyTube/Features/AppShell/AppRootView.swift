@@ -9,7 +9,7 @@ import SwiftUI
 
 struct AppRootView: View {
     @EnvironmentObject private var appEnvironment: AppEnvironment
-    @State private var selection: Route?
+    @State private var selection: Route = .home
 
     var body: some View {
         Group {
@@ -17,22 +17,32 @@ struct AppRootView: View {
             case .needsParentIdentity:
                 OnboardingFlowView(environment: appEnvironment)
             case .ready:
-                NavigationSplitView {
-                    SidebarView(selection: $selection)
-                } detail: {
-                    if let selection {
-                        detailView(for: selection)
-                    } else {
-                        Color.clear
+                ZStack(alignment: .bottom) {
+                    TabView(selection: $selection) {
+                        HomeFeedView()
+                            .toolbar(.hidden, for: .tabBar)
+                            .tag(Route.home)
+
+                        CaptureView(environment: appEnvironment)
+                            .toolbar(.hidden, for: .tabBar)
+                            .tag(Route.capture)
+
+                        NavigationStack {
+                            EditorHubView(environment: appEnvironment)
+                        }
+                        .toolbar(.hidden, for: .tabBar)
+                        .tag(Route.editor)
+
+                        ParentZoneView(environment: appEnvironment)
+                            .toolbar(.hidden, for: .tabBar)
+                            .tag(Route.parentZone)
                     }
+                    
+                    CustomTabBar(selection: $selection, accent: appEnvironment.activeProfile.theme.kidPalette.accent)
                 }
                 .onAppear {
-                    if selection == nil {
-                        if !appEnvironment.parentAuth.isPinConfigured() {
-                            selection = .parentZone
-                        } else {
-                            selection = .home
-                        }
+                    if !appEnvironment.parentAuth.isPinConfigured() {
+                        selection = .parentZone
                     }
                 }
                 .onChange(of: appEnvironment.pendingDeepLink) { newValue in
@@ -46,20 +56,6 @@ struct AppRootView: View {
         .background(KidAppBackground())
     }
 
-    @ViewBuilder
-    private func detailView(for route: Route) -> some View {
-        switch route {
-        case .home:
-            HomeFeedView()
-        case .capture:
-            CaptureView(environment: appEnvironment)
-        case .editor:
-            EditorHubView(environment: appEnvironment)
-        case .parentZone:
-            ParentZoneView(environment: appEnvironment)
-        }
-    }
-
     enum Route: Hashable {
         case home
         case capture
@@ -68,72 +64,55 @@ struct AppRootView: View {
     }
 }
 
-private struct SidebarView: View {
-    @EnvironmentObject private var appEnvironment: AppEnvironment
-    @Binding var selection: AppRootView.Route?
-
+private struct CustomTabBar: View {
+    @Binding var selection: AppRootView.Route
+    let accent: Color
+    
     var body: some View {
-        VStack(spacing: 0) {
-            List(selection: $selection) {
-                Section("Browse") {
-                    NavigationLink(value: AppRootView.Route.home) {
-                        Label("Home", systemImage: "house.fill")
-                    }
-                    NavigationLink(value: AppRootView.Route.capture) {
-                        Label("Capture", systemImage: "video.badge.plus")
-                    }
-                    NavigationLink(value: AppRootView.Route.editor) {
-                        Label("Editor", systemImage: "wand.and.stars")
-                    }
-                    NavigationLink(value: AppRootView.Route.parentZone) {
-                        Label("Parent Zone", systemImage: "lock.shield")
-                    }
-                }
-
-                Section("Active Profile") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(appEnvironment.activeProfile.name)
-                            .font(.headline)
-
-                        Picker(
-                            "Theme",
-                            selection: Binding(
-                                get: { appEnvironment.activeProfile.theme },
-                                set: { newTheme in
-                                    applyTheme(newTheme)
-                                }
-                            )
-                        ) {
-                            ForEach(ThemeDescriptor.allCases, id: \.self) { theme in
-                                Text(theme.displayName).tag(theme)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                }
-            }
-            .frame(maxHeight: .infinity)
-            .navigationTitle("Tubestr")
-            .scrollContentBackground(.hidden)
-
-            Text(AppVersionFormatter.formatted)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+        HStack(spacing: 0) {
+            tabButton(route: .home, icon: "house.fill", label: "Home")
+            divider
+            tabButton(route: .capture, icon: "video.badge.plus", label: "Capture")
+            divider
+            tabButton(route: .editor, icon: "wand.and.stars", label: "Editor")
+            divider
+            tabButton(route: .parentZone, icon: "lock.shield", label: "Parent Zone")
+        }
+        .fixedSize(horizontal: false, vertical: true) // Ensure height is determined by content
+        .background(
+            Rectangle()
+                .fill(.ultraThickMaterial)
+                .ignoresSafeArea(edges: .bottom)
+        )
+        .overlay(alignment: .top) {
+            Divider()
+                .background(Color(.separator))
         }
     }
-}
-
-private extension SidebarView {
-    func applyTheme(_ theme: ThemeDescriptor) {
-        var updated = appEnvironment.activeProfile
-        updated.theme = theme
-        do {
-            try appEnvironment.profileStore.updateProfile(updated)
-            appEnvironment.switchProfile(updated)
-        } catch {
-            assertionFailure("Failed to update profile theme: \(error)")
+    
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.2))
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .padding(.vertical, 6)
+    }
+    
+    private func tabButton(route: AppRootView.Route, icon: String, label: String) -> some View {
+        Button {
+            selection = route
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                Text(label)
+                    .font(.caption2)
+            }
+            .frame(maxWidth: .infinity) // Equal sized tabs
+            .padding(.vertical, 6)
+            .foregroundStyle(selection == route ? accent : .primary)
+            .contentShape(Rectangle())
+            .fontWeight(selection == route ? .bold : .medium)
         }
     }
 }
