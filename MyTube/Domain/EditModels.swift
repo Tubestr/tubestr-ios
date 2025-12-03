@@ -37,6 +37,7 @@ struct ClipSegment: Identifiable, Hashable {
 
 enum OverlayContent: Hashable {
     case sticker(name: String)
+    case userSticker(fileURL: URL)
     case text(String, fontName: String, color: Color)
 }
 

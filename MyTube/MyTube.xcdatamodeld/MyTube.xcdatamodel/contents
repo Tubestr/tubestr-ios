@@ -112,6 +112,35 @@
         <attribute name="lastActionAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="isOutbound" optional="NO" attributeType="Boolean" defaultValueString="NO"/>
         <attribute name="deliveredAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="level" optional="NO" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="reporterChild" optional="YES" attributeType="String"/>
+        <attribute name="recipientType" optional="NO" attributeType="String" defaultValueString="group"/>
+    </entity>
+    <entity name="Relationship" representedClassName="RelationshipEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="localProfileId" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="remoteParentKey" optional="NO" attributeType="String"/>
+        <attribute name="remoteChildKey" optional="YES" attributeType="String"/>
+        <attribute name="mlsGroupId" optional="NO" attributeType="String"/>
+        <attribute name="state" optional="NO" attributeType="String" defaultValueString="active"/>
+        <attribute name="stateReason" optional="YES" attributeType="String"/>
+        <attribute name="stateChangedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="stateChangedBy" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastActivityAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="localReportCount" optional="NO" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="remoteReportCount" optional="NO" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="blockedByRemote" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+    </entity>
+    <entity name="ModerationAudit" representedClassName="ModerationAuditEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="actionType" optional="NO" attributeType="String"/>
+        <attribute name="actorKey" optional="NO" attributeType="String"/>
+        <attribute name="targetType" optional="YES" attributeType="String"/>
+        <attribute name="targetId" optional="YES" attributeType="String"/>
+        <attribute name="details" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
     </entity>
     <elements>
         <element name="Profile" positionX="-63" positionY="-18" width="128" height="104"/>
@@ -123,7 +152,9 @@
         <element name="ParentProfile" positionX="763" positionY="-18" width="160" height="209"/>
         <element name="ChildProfile" positionX="976" positionY="-18" width="160" height="209"/>
         <element name="Like" positionX="124" positionY="306" width="128" height="149"/>
-        <element name="Report" positionX="550" positionY="206" width="160" height="239"/>
+        <element name="Report" positionX="550" positionY="206" width="160" height="284"/>
+        <element name="Relationship" positionX="763" positionY="430" width="160" height="269"/>
+        <element name="ModerationAudit" positionX="976" positionY="430" width="160" height="164"/>
     </elements>
 </model>
 

@@ -83,9 +83,9 @@ struct PublishProgressOverlay: View {
                 }
             }
             .padding(40)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                RoundedRectangle(cornerRadius: 32, style: .continuous)
                     .stroke(Color.white.opacity(0.2), lineWidth: 1)
             )
 

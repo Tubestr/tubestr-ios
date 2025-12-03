@@ -19,7 +19,7 @@ struct OnboardingFlowView: View {
     @State private var parentProfileSheetError: String?
     @State private var isPresentingNewChild = false
     @State private var newChildName = ""
-    @State private var newChildTheme: ThemeDescriptor = .ocean
+    @State private var newChildTheme: ThemeDescriptor = .campfire
     @State private var isCreatingChild = false
     @State private var childCreationError: String?
     private let introSlides = IntroSlide.slides
@@ -199,7 +199,7 @@ struct OnboardingFlowView: View {
     private var roleSelectionStep: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Welcome to Tubestr")
+                Text("Welcome to Nook")
                     .font(.largeTitle.weight(.bold))
                 Text("Choose how you want to get started. You can set up a new family or restore an existing account.")
                     .font(.title3)
@@ -368,12 +368,12 @@ struct OnboardingFlowView: View {
                 Text("Child Profiles")
                     .font(.title.bold())
 
-                Text("Add profiles for each child who will use Tubestr. Each child gets their own personalized experience.")
+                Text("Add profiles for each child who will use Nook. Each child gets their own personalized experience.")
                     .foregroundStyle(.secondary)
 
                 Button {
                     newChildName = ""
-                    newChildTheme = .ocean
+                    newChildTheme = .campfire
                     isPresentingNewChild = true
                 } label: {
                     Label("Add Child Profile", systemImage: "plus.circle.fill")
@@ -503,7 +503,7 @@ struct OnboardingFlowView: View {
 
     private func resetChildCreationState() {
         newChildName = ""
-        newChildTheme = .ocean
+        newChildTheme = .campfire
         childCreationError = nil
         isCreatingChild = false
         isPresentingNewChild = false
@@ -1099,10 +1099,10 @@ private struct IntroSlideView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Tubestr")
+                    Text("Nook")
                         .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(.white)
-                    Text("Playful video sharing for trusted families")
+                    Text("Your cozy corner for creativity")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(.white.opacity(0.8))
                 }

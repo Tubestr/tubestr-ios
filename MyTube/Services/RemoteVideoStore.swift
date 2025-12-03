@@ -359,6 +359,92 @@ final class RemoteVideoStore {
         }
     }
 
+    // MARK: - Relationship Media Deletion
+
+    /// Delete all local media for videos from a specific group
+    func deleteMediaForGroup(groupId: String, storagePaths: StoragePaths) throws -> Int {
+        let context = persistence.newBackgroundContext()
+        let fileManager = FileManager.default
+
+        return try context.performAndCapture {
+            let request = RemoteVideoEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "mlsGroupId == %@", groupId)
+
+            let entities = try context.fetch(request)
+            var deletedCount = 0
+
+            for entity in entities {
+                // Delete media files
+                if let mediaPath = entity.localMediaPath {
+                    let url = storagePaths.rootURL.appendingPathComponent(mediaPath)
+                    try? fileManager.removeItem(at: url)
+                }
+                if let thumbPath = entity.localThumbPath {
+                    let url = storagePaths.rootURL.appendingPathComponent(thumbPath)
+                    try? fileManager.removeItem(at: url)
+                }
+
+                // Update status
+                entity.status = RemoteVideoModel.Status.blocked.rawValue
+                entity.localMediaPath = nil
+                entity.localThumbPath = nil
+                entity.lastDownloadedAt = nil
+                entity.lastSyncedAt = Date()
+                deletedCount += 1
+            }
+
+            try context.save()
+            return deletedCount
+        }
+    }
+
+    /// Apply moderator-initiated removal
+    func applyModeratorRemoval(videoId: String, storagePaths: StoragePaths) throws -> RemoteVideoModel? {
+        let context = persistence.newBackgroundContext()
+        let fileManager = FileManager.default
+
+        return try context.performAndCapture {
+            let request = RemoteVideoEntity.fetchRequest()
+            request.predicate = NSPredicate(format: "videoId == %@", videoId)
+            request.fetchLimit = 1
+
+            guard let entity = try context.fetch(request).first else {
+                return nil
+            }
+
+            // Delete media files
+            if let mediaPath = entity.localMediaPath {
+                let url = storagePaths.rootURL.appendingPathComponent(mediaPath)
+                try? fileManager.removeItem(at: url)
+            }
+            if let thumbPath = entity.localThumbPath {
+                let url = storagePaths.rootURL.appendingPathComponent(thumbPath)
+                try? fileManager.removeItem(at: url)
+            }
+
+            entity.status = RemoteVideoModel.Status.deleted.rawValue
+            entity.downloadError = "moderator_action"
+            entity.localMediaPath = nil
+            entity.localThumbPath = nil
+            entity.lastDownloadedAt = nil
+            entity.lastSyncedAt = Date()
+
+            try context.save()
+
+            // Notify UI about video tombstone
+            NotificationCenter.default.post(
+                name: .videoTombstoned,
+                object: nil,
+                userInfo: [
+                    "videoId": videoId,
+                    "reason": "moderator_action"
+                ]
+            )
+
+            return RemoteVideoModel(entity: entity)
+        }
+    }
+
     // MARK: - Helpers
 
     private func fetch(with request: NSFetchRequest<RemoteVideoEntity>) throws -> [RemoteVideoModel] {
@@ -366,6 +452,10 @@ final class RemoteVideoStore {
         let entities = try context.fetch(request)
         return entities.compactMap(RemoteVideoModel.init(entity:))
     }
+}
+
+extension Notification.Name {
+    static let videoTombstoned = Notification.Name("VideoTombstoned")
 }
 
 private struct RemoteShareAccumulator {

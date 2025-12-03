@@ -447,6 +447,46 @@ final class PlayerViewModel: ObservableObject {
         isReporting = false
     }
 
+    /// Report a video using the child-friendly feeling system
+    func reportVideoWithFeeling(
+        feeling: ReportFeeling,
+        action: ReportAction
+    ) async {
+        guard !isReporting else { return }
+        isReporting = true
+        reportError = nil
+        let subjectChild = reportSubjectChild()
+        let reporterChildId = environment.activeProfile.id.uuidString
+
+        do {
+            _ = try await environment.reportCoordinator.submitReport(
+                videoId: source.videoIdString,
+                subjectChild: subjectChild,
+                reason: feeling.reason,
+                note: "Child reported feeling: \(feeling.label)",
+                level: feeling.level,
+                reporterChild: reporterChildId,
+                action: action
+            )
+
+            // Only update local video if it's a local source
+            if let video {
+                if let updated = try? await environment.videoLibrary.markVideoReported(
+                    videoId: video.id,
+                    reason: feeling.reason
+                ) {
+                    self.video = updated
+                }
+            }
+
+            reportSuccess = true
+        } catch {
+            reportError = error.displayMessage
+        }
+
+        isReporting = false
+    }
+
     func resetReportState() {
         reportSuccess = false
         reportError = nil

@@ -28,141 +28,145 @@ struct KidPalette {
 extension ThemeDescriptor {
     var kidPalette: KidPalette {
         switch self {
-        case .ocean:
+        case .campfire:
+            // Warm oranges, deep amber, soft cream - like gathering around a fire
             return KidPalette(
                 accent: Color(
-                    light: Color(red: 0.13, green: 0.66, blue: 0.98),
-                    dark: Color(red: 0.30, green: 0.80, blue: 1.00)
+                    light: Color(red: 0.91, green: 0.49, blue: 0.27),
+                    dark: Color(red: 1.00, green: 0.62, blue: 0.40)
                 ),
                 accentSecondary: Color(
-                    light: Color(red: 0.35, green: 0.89, blue: 0.98),
-                    dark: Color(red: 0.20, green: 0.70, blue: 0.90)
+                    light: Color(red: 1.00, green: 0.72, blue: 0.42),
+                    dark: Color(red: 1.00, green: 0.78, blue: 0.55)
                 ),
                 bgTop: Color(
-                    light: Color(red: 0.93, green: 0.92, blue: 1.00),
-                    dark: Color(red: 0.05, green: 0.05, blue: 0.15)
+                    light: Color(red: 1.00, green: 0.97, blue: 0.94),
+                    dark: Color(red: 0.18, green: 0.12, blue: 0.08)
                 ),
                 bgBottom: Color(
-                    light: Color(red: 0.87, green: 0.90, blue: 1.00),
-                    dark: Color(red: 0.10, green: 0.10, blue: 0.25)
+                    light: Color(red: 1.00, green: 0.92, blue: 0.86),
+                    dark: Color(red: 0.24, green: 0.16, blue: 0.11)
                 ),
                 cardFill: Color(
-                    light: Color.white.opacity(0.6),
-                    dark: Color.white.opacity(0.1)
+                    light: Color.white.opacity(0.7),
+                    dark: Color.white.opacity(0.08)
                 ),
                 cardStroke: Color(
-                    light: Color(red: 0.13, green: 0.66, blue: 0.98),
-                    dark: Color(red: 0.30, green: 0.80, blue: 1.00)
-                ).opacity(0.25),
+                    light: Color(red: 0.91, green: 0.49, blue: 0.27),
+                    dark: Color(red: 1.00, green: 0.62, blue: 0.40)
+                ).opacity(0.2),
                 chipFill: Color(
-                    light: Color.white.opacity(0.75),
-                    dark: Color.white.opacity(0.2)
+                    light: Color.white.opacity(0.8),
+                    dark: Color.white.opacity(0.15)
                 ),
-                success: Color(red: 0.18, green: 0.73, blue: 0.43),
-                warning: Color(red: 1.00, green: 0.62, blue: 0.00),
-                error: Color(red: 0.95, green: 0.33, blue: 0.36)
+                success: Color(red: 0.30, green: 0.69, blue: 0.47),
+                warning: Color(red: 0.95, green: 0.68, blue: 0.25),
+                error: Color(red: 0.90, green: 0.40, blue: 0.38)
             )
-        case .sunset:
+        case .treehouse:
+            // Warm browns, soft greens, golden yellows - like a cozy treehouse hideaway
             return KidPalette(
                 accent: Color(
-                    light: Color(red: 0.97, green: 0.35, blue: 0.54),
-                    dark: Color(red: 1.00, green: 0.50, blue: 0.70)
+                    light: Color(red: 0.55, green: 0.45, blue: 0.33),
+                    dark: Color(red: 0.71, green: 0.61, blue: 0.47)
                 ),
                 accentSecondary: Color(
-                    light: Color(red: 1.00, green: 0.68, blue: 0.37),
-                    dark: Color(red: 1.00, green: 0.55, blue: 0.20)
+                    light: Color(red: 0.66, green: 0.69, blue: 0.45),
+                    dark: Color(red: 0.75, green: 0.76, blue: 0.57)
                 ),
                 bgTop: Color(
-                    light: Color(red: 1.00, green: 0.90, blue: 0.80),
-                    dark: Color(red: 0.25, green: 0.10, blue: 0.05)
+                    light: Color(red: 0.98, green: 0.96, blue: 0.92),
+                    dark: Color(red: 0.14, green: 0.12, blue: 0.10)
                 ),
                 bgBottom: Color(
-                    light: Color(red: 1.00, green: 0.78, blue: 0.72),
-                    dark: Color(red: 0.30, green: 0.15, blue: 0.10)
+                    light: Color(red: 0.92, green: 0.89, blue: 0.82),
+                    dark: Color(red: 0.20, green: 0.16, blue: 0.14)
                 ),
                 cardFill: Color(
-                    light: Color.white.opacity(0.6),
-                    dark: Color.white.opacity(0.1)
+                    light: Color.white.opacity(0.7),
+                    dark: Color.white.opacity(0.08)
                 ),
                 cardStroke: Color(
-                    light: Color(red: 0.97, green: 0.35, blue: 0.54),
-                    dark: Color(red: 1.00, green: 0.50, blue: 0.70)
-                ).opacity(0.25),
+                    light: Color(red: 0.55, green: 0.45, blue: 0.33),
+                    dark: Color(red: 0.71, green: 0.61, blue: 0.47)
+                ).opacity(0.2),
                 chipFill: Color(
-                    light: Color.white.opacity(0.75),
-                    dark: Color.white.opacity(0.2)
+                    light: Color.white.opacity(0.8),
+                    dark: Color.white.opacity(0.15)
                 ),
-                success: Color(red: 0.18, green: 0.73, blue: 0.43),
-                warning: Color(red: 1.00, green: 0.62, blue: 0.00),
-                error: Color(red: 0.95, green: 0.33, blue: 0.36)
+                success: Color(red: 0.30, green: 0.69, blue: 0.47),
+                warning: Color(red: 0.95, green: 0.68, blue: 0.25),
+                error: Color(red: 0.90, green: 0.40, blue: 0.38)
             )
-        case .forest:
+        case .blanketFort:
+            // Soft lavenders, warm pinks, cozy cream - like a magical pillow fort
             return KidPalette(
                 accent: Color(
-                    light: Color(red: 0.25, green: 0.70, blue: 0.49),
-                    dark: Color(red: 0.40, green: 0.90, blue: 0.60)
+                    light: Color(red: 0.70, green: 0.57, blue: 0.71),
+                    dark: Color(red: 0.78, green: 0.67, blue: 0.80)
                 ),
                 accentSecondary: Color(
-                    light: Color(red: 0.52, green: 0.88, blue: 0.52),
-                    dark: Color(red: 0.30, green: 0.70, blue: 0.40)
+                    light: Color(red: 0.90, green: 0.69, blue: 0.73),
+                    dark: Color(red: 0.94, green: 0.76, blue: 0.78)
                 ),
                 bgTop: Color(
-                    light: Color(red: 0.88, green: 0.98, blue: 0.90),
-                    dark: Color(red: 0.05, green: 0.15, blue: 0.05)
+                    light: Color(red: 0.99, green: 0.97, blue: 0.99),
+                    dark: Color(red: 0.15, green: 0.13, blue: 0.16)
                 ),
                 bgBottom: Color(
-                    light: Color(red: 0.80, green: 0.94, blue: 0.86),
-                    dark: Color(red: 0.10, green: 0.20, blue: 0.15)
+                    light: Color(red: 0.97, green: 0.94, blue: 0.96),
+                    dark: Color(red: 0.19, green: 0.16, blue: 0.20)
                 ),
                 cardFill: Color(
-                    light: Color.white.opacity(0.6),
-                    dark: Color.white.opacity(0.1)
+                    light: Color.white.opacity(0.7),
+                    dark: Color.white.opacity(0.08)
                 ),
                 cardStroke: Color(
-                    light: Color(red: 0.25, green: 0.70, blue: 0.49),
-                    dark: Color(red: 0.40, green: 0.90, blue: 0.60)
-                ).opacity(0.25),
+                    light: Color(red: 0.70, green: 0.57, blue: 0.71),
+                    dark: Color(red: 0.78, green: 0.67, blue: 0.80)
+                ).opacity(0.2),
                 chipFill: Color(
-                    light: Color.white.opacity(0.75),
-                    dark: Color.white.opacity(0.2)
+                    light: Color.white.opacity(0.8),
+                    dark: Color.white.opacity(0.15)
                 ),
-                success: Color(red: 0.18, green: 0.73, blue: 0.43),
-                warning: Color(red: 1.00, green: 0.62, blue: 0.00),
-                error: Color(red: 0.95, green: 0.33, blue: 0.36)
+                success: Color(red: 0.30, green: 0.69, blue: 0.47),
+                warning: Color(red: 0.95, green: 0.68, blue: 0.25),
+                error: Color(red: 0.90, green: 0.40, blue: 0.38)
             )
-        case .galaxy:
+        case .starlight:
+            // Deep warm purples, golden stars, midnight warmth - like a cozy night sky
             return KidPalette(
                 accent: Color(
-                    light: Color(red: 0.52, green: 0.46, blue: 0.98),
-                    dark: Color(red: 0.70, green: 0.65, blue: 1.00)
+                    light: Color(red: 0.47, green: 0.37, blue: 0.59),
+                    dark: Color(red: 0.65, green: 0.55, blue: 0.76)
                 ),
                 accentSecondary: Color(
-                    light: Color(red: 0.36, green: 0.79, blue: 0.98),
-                    dark: Color(red: 0.50, green: 0.40, blue: 0.90)
+                    light: Color(red: 0.84, green: 0.73, blue: 0.49),
+                    dark: Color(red: 0.92, green: 0.82, blue: 0.61)
                 ),
                 bgTop: Color(
-                    light: Color(red: 0.93, green: 0.92, blue: 1.00),
-                    dark: Color(red: 0.10, green: 0.05, blue: 0.20)
+                    light: Color(red: 0.96, green: 0.95, blue: 0.98),
+                    dark: Color(red: 0.12, green: 0.10, blue: 0.18)
                 ),
                 bgBottom: Color(
-                    light: Color(red: 0.87, green: 0.90, blue: 1.00),
-                    dark: Color(red: 0.15, green: 0.10, blue: 0.30)
+                    light: Color(red: 0.92, green: 0.90, blue: 0.96),
+                    dark: Color(red: 0.18, green: 0.15, blue: 0.24)
                 ),
                 cardFill: Color(
-                    light: Color.white.opacity(0.6),
-                    dark: Color.white.opacity(0.1)
+                    light: Color.white.opacity(0.7),
+                    dark: Color.white.opacity(0.08)
                 ),
                 cardStroke: Color(
-                    light: Color(red: 0.52, green: 0.46, blue: 0.98),
-                    dark: Color(red: 0.70, green: 0.65, blue: 1.00)
-                ).opacity(0.25),
+                    light: Color(red: 0.47, green: 0.37, blue: 0.59),
+                    dark: Color(red: 0.65, green: 0.55, blue: 0.76)
+                ).opacity(0.2),
                 chipFill: Color(
-                    light: Color.white.opacity(0.75),
-                    dark: Color.white.opacity(0.2)
+                    light: Color.white.opacity(0.8),
+                    dark: Color.white.opacity(0.15)
                 ),
-                success: Color(red: 0.18, green: 0.73, blue: 0.43),
-                warning: Color(red: 1.00, green: 0.62, blue: 0.00),
-                error: Color(red: 0.95, green: 0.33, blue: 0.36)
+                success: Color(red: 0.30, green: 0.69, blue: 0.47),
+                warning: Color(red: 0.95, green: 0.68, blue: 0.25),
+                error: Color(red: 0.90, green: 0.40, blue: 0.38)
             )
         }
     }
@@ -184,14 +188,14 @@ struct KidCardBackground: ViewModifier {
         let palette = appEnvironment.activeProfile.theme.kidPalette
         return content
             .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .fill(.ultraThinMaterial)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .stroke(palette.cardStroke, lineWidth: 1)
             )
-            .shadow(color: palette.accent.opacity(0.08), radius: 10, y: 6)
+            .shadow(color: palette.accent.opacity(0.06), radius: 14, y: 8)
     }
 }
 
@@ -213,14 +217,14 @@ struct KidPrimaryButtonStyle: ButtonStyle {
             .padding(.horizontal, 18)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(
                         LinearGradient(colors: [palette.accent, palette.accentSecondary], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
             )
-            .shadow(color: palette.accent.opacity(0.25), radius: 10, y: 6)
+            .shadow(color: palette.accent.opacity(0.18), radius: 14, y: 8)
             .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.85), value: configuration.isPressed)
+            .animation(.spring(response: 0.45, dampingFraction: 0.82), value: configuration.isPressed)
     }
 }
 
@@ -236,15 +240,15 @@ struct KidSecondaryButtonStyle: ButtonStyle {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(palette.cardFill)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .stroke(palette.cardStroke, lineWidth: 1)
             )
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.9), value: configuration.isPressed)
+            .animation(.spring(response: 0.40, dampingFraction: 0.85), value: configuration.isPressed)
     }
 }
 
@@ -261,9 +265,9 @@ struct KidCircleIconButtonStyle: ButtonStyle {
                 )
             )
             .foregroundStyle(Color.white)
-            .shadow(color: palette.accent.opacity(0.25), radius: 8, y: 5)
+            .shadow(color: palette.accent.opacity(0.18), radius: 12, y: 7)
             .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isPressed)
+            .animation(.spring(response: 0.50, dampingFraction: 0.80), value: configuration.isPressed)
     }
 }
 

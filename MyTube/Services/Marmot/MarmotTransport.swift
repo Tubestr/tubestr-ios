@@ -228,6 +228,59 @@ actor MarmotTransport {
         return try await publish(jsonEvent: eventJson, relayOverride: overrideRelays)
     }
 
+    // MARK: - Moderation Publishing
+
+    /// Moderation relay for Level 3 reports
+    private static let moderationRelay = URL(string: "wss://no.str.cr")!
+
+    /// Publish a report to moderation relays (Level 3)
+    func publishToModerationRelays(message: ReportMessage) async throws {
+        guard let parentPair = try? keyStore.fetchKeyPair(role: .parent) else {
+            throw TransportError.signingKeyUnavailable
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let jsonData = try encoder.encode(message)
+        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw TransportError.rumorEncodingFailed
+        }
+
+        // Create and sign event with report kind
+        let tags = [
+            NostrTagBuilder.make(name: "t", value: message.t),
+            NostrTagBuilder.make(name: "level", value: String(message.level ?? 3)),
+            NostrTagBuilder.make(name: "video_id", value: message.videoId)
+        ]
+
+        let event = try eventSigner.makeEvent(
+            kind: EventKind(kind: MarmotMessageKind.report.rawValue),
+            tags: tags,
+            content: jsonString,
+            keyPair: parentPair
+        )
+
+        // Get current relays and ensure moderation relay is included
+        var relays = await relayDirectory.currentRelayURLs()
+        if !relays.contains(Self.moderationRelay) {
+            relays.append(Self.moderationRelay)
+        }
+
+        // Filter to connected relays, but always try moderation relay
+        let connectedSet = Set(
+            (await nostrClient.relayStatuses())
+                .filter { $0.status == .connected }
+                .map(\.url)
+        )
+        var targetRelays = relays.filter { connectedSet.contains($0) }
+        if !targetRelays.contains(Self.moderationRelay) {
+            targetRelays.append(Self.moderationRelay)
+        }
+
+        try await nostrClient.publish(event: event, to: targetRelays)
+        logger.info("Published Level 3 moderation report \(event.idHex.prefix(16), privacy: .public) to \(targetRelays.count) relay(s)")
+    }
+
     private func decodeEvent(from json: String) throws -> NostrEvent {
         do {
             return try NostrEvent.fromJson(json: json)

@@ -10,7 +10,7 @@ This document outlines the implementation plan for multi-device support in MyTub
 - **Recovery**: Parent nsec alone is sufficient to restore everything. If nsec is lost, recovery is not possible (accepted trade-off for cryptographic security)
 - **Device model**: Primary device for admin operations; secondary devices are read/share only. Any device can be promoted to primary.
 - **User flow**: Automatic vault creation for all new users
-- **MLS integration**: Each device gets a derived subkey for MLS group participation
+- **MLS integration**: Each device gets a derived Nostr subkey; the device itself must generate and retain its MLS key package (MDK generates MLS keys internally; no injected seeds)
 - **Child identity**: Children have their own npub/nsec keypairs, but parent signs all messages on their behalf (child attribution via `child_profile_id` + `child_pubkey` in payloads)
 - **Device linking (v1)**: Simple local QR - no Nostr approval flow. Physical proximity = trust.
 
@@ -45,7 +45,7 @@ Document this in a separate ThreatModel.md for internal reference.
 2. Generate parent nsec + wrap key
 3. Create device record (deviceId, isPrimary=true)
 4. Generate device subkey: HKDF(nsec, deviceId)
-5. Create MLS key package for device subkey
+5. Create MLS key package locally for device subkey (device keeps MLS keys)
 6. Create identity vault (encrypted with HKDF(nsec))
 7. Upload vault to MinIO
 8. Store nsec + subkey in Keychain
@@ -67,15 +67,16 @@ Primary Device:                         New Device:
                                         6. Derive vault key from nsec
                                         7. Download + decrypt vault
                                         8. Generate new deviceId
-                                        9. Generate device subkey
+                                        9. Generate device subkey (Nostr)
                                         10. Store nsec + subkey in Keychain
-                                        11. Publish key package to relays
-12. Detect new key package
-13. Add new device to ALL groups
-14. Publish welcomes                    15. Receive + accept welcomes
-                                        16. MDK now has group state
-17. Update vault with new device
-18. Upload updated vault
+                                        11. Locally generate MLS key package (required; MDK stores MLS keys on-device)
+                                        12. Publish key package to relays
+13. Detect new key package
+14. Add new device to ALL groups via addMembers
+15. Publish welcomes                    16. Receive + accept welcomes
+                                        17. MDK now has group state
+18. Update vault with new device
+19. Upload updated vault
 ```
 
 **Flow 3: Recovery with nsec Only (No Other Device)**
@@ -88,7 +89,7 @@ Primary Device:                         New Device:
 6. Download and decrypt vault
 7. Restore: wrap key, child profiles, device list
 8. Generate new device subkey
-9. Publish key package
+9. Generate MLS key package locally; publish to relays
 10. WAIT: need another device to add to groups, OR
     if this is the only device, groups are empty anyway
 ```
@@ -333,7 +334,12 @@ func generateParentIdentity() async throws {
 
 ## Phase 2: Device Subkey Architecture
 
-**Goal**: Implement per-device MLS subkeys derived from parent nsec.
+**Goal**: Implement per-device Nostr subkeys (derived from parent nsec) to identify each device in MLS; each device generates its own MLS keys locally.
+
+**MDK constraints to honor**
+- Key packages must be generated on the device that will join; MDK generates and stores MLS keys internally and cannot accept injected keys/seeds.
+- There is no self-welcome for the creator; additional creator devices must be added via `addMembers` after their key packages are available.
+- Messages should use the device pubkey for consistency, but MDK will sign with the stored member keys regardless of the sender string.
 
 ### 2.1 DeviceSubkeyManager
 
@@ -346,7 +352,7 @@ actor DeviceSubkeyManager {
 
     // Deterministic subkey derivation
     func generateSubkey(parentNsec: Data, deviceId: String) -> NostrKeyPair {
-        // HKDF(nsec, salt=deviceId, info="mytube:subkey:v1")
+        // HKDF(nsec, salt=deviceId, info="mytube:subkey:v1") — Nostr identity only
         let derivedSecret = hkdfSHA256(
             secret: parentNsec,
             salt: deviceId.data(using: .utf8)!,
@@ -356,7 +362,7 @@ actor DeviceSubkeyManager {
         return NostrKeyPair(secretKey: derivedSecret)
     }
 
-    // Key package for MLS
+    // Key package for MLS — must be generated on the device that will join so MDK stores the MLS keys locally.
     func createKeyPackage(for subkey: NostrKeyPair, relays: [String]) async throws -> String {
         return try await mdkActor.createKeyPackage(
             forPublicKey: subkey.publicKey.hex,

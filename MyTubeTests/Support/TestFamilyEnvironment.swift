@@ -172,13 +172,18 @@ class TestFamilyEnvironment {
             parentalControlsStore: parentalControlsStore,
             mdkActor: mdkActor
         )
+        let relationshipStore = RelationshipStore(persistence: persistence)
+        let moderationAuditStore = ModerationAuditStore(persistence: persistence)
         let reportCoordinator = ReportCoordinator(
             reportStore: reportStore,
             remoteVideoStore: remoteVideoStore,
             marmotShareService: marmotShareService,
+            marmotTransport: marmotTransport,
             keyStore: keyStore,
             storagePaths: storagePaths,
-            groupMembershipCoordinator: groupMembershipCoordinator
+            groupMembershipCoordinator: groupMembershipCoordinator,
+            relationshipStore: relationshipStore,
+            moderationAuditStore: moderationAuditStore
         )
 
         let childKeyBackupService = ChildKeyBackupService(
@@ -273,6 +278,8 @@ class TestFamilyEnvironment {
             groupMembershipCoordinator: groupMembershipCoordinator,
             reportStore: reportStore,
             reportCoordinator: reportCoordinator,
+            relationshipStore: relationshipStore,
+            moderationAuditStore: moderationAuditStore,
             childKeyBackupService: childKeyBackupService,
             backendClient: backendClient,
             storageConfigurationStore: storageConfig,

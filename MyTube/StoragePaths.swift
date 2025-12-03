@@ -14,6 +14,7 @@ final class StoragePaths {
         case media = "Media"
         case thumbs = "Thumbs"
         case edits = "Edits"
+        case userStickers = "UserStickers"
     }
 
     private let fileManager: FileManager

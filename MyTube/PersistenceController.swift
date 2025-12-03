@@ -194,7 +194,7 @@ struct SampleDataSeeder {
         let profile = ProfileEntity(context: context)
         profile.id = UUID()
         profile.name = "Sample Kid"
-        profile.theme = ThemeDescriptor.ocean.rawValue
+        profile.theme = ThemeDescriptor.campfire.rawValue
         profile.avatarAsset = "avatar.dolphin"
         profile.mlsGroupId = nil
         profile.mlsGroupIdsJSON = "[]"

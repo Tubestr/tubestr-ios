@@ -21,6 +21,7 @@ struct EditorDetailView: View {
     @State private var timeObserver: Any?
     @State private var showDeleteConfirm = false
     @State private var isScrubbing = false
+    @State private var isToolPanelExpanded = true
 
     init(video: VideoModel, environment: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: EditorDetailViewModel(video: video, environment: environment))
@@ -28,51 +29,90 @@ struct EditorDetailView: View {
 
     var body: some View {
         let palette = appEnvironment.activeProfile.theme.kidPalette
-        
+
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
-                // 1. Background
-                palette.backgroundGradient.ignoresSafeArea()
+                // 1. Background with decorations
+                ZStack {
+                    palette.backgroundGradient
+                    OrganicBlobBackground()
+                    FloatingDecorations(intensity: .subtle)
+                        .opacity(0.4)
+                }
+                .ignoresSafeArea()
 
-                // 2. Main Content
-                VStack(spacing: 0) {
-                    // Header
-                    header
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .zIndex(10)
+                // 2. Main Content - Using ZStack for overlay effect
+                ZStack(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        // Header
+                        editorHeader(palette: palette)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                            .zIndex(10)
 
-                    // Middle Area (Preview + Sidebar)
-                    HStack(spacing: 0) {
-                        // Preview Area
-                        previewArea(in: geometry)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .clipped()
+                        // Middle Area (Preview + Tools)
+                        HStack(spacing: 0) {
+                            // Preview Area
+                            previewArea(palette: palette, geometry: geometry)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .clipped()
 
-                        // Right Sidebar
-                        sidebarTools
-                            .padding(.trailing, 16)
-                            .padding(.leading, 8)
+                            // Right Sidebar with Playful Icons
+                            playfulToolSidebar(palette: palette, isExpanded: $isToolPanelExpanded)
+                                .padding(.trailing, 16)
+                                .padding(.leading, 12)
+                        }
+                        .padding(.bottom, isToolPanelExpanded ? 180 : 20)
                     }
 
-                    // Bottom Tool Area
-                    toolPanel
-                        .frame(height: 260)
-                        .background(colorScheme == .dark ? Color.black.opacity(0.6) : Color.white.opacity(0.6))
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    // Bottom Tool Panel - Overlays video preview
+                    if isToolPanelExpanded {
+                        VStack(spacing: 0) {
+                            // Drag handle
+                            Capsule()
+                                .fill(palette.cardStroke)
+                                .frame(width: 40, height: 5)
+                                .padding(.top, 10)
+                                .padding(.bottom, 6)
+
+                            toolPanel(palette: palette)
+                        }
+                        .frame(height: 340)
+                        .background(
+                            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                                .fill(palette.cardFill)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 32, style: .continuous)
+                                        .fill(.ultraThinMaterial)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 32, style: .continuous)
+                                        .stroke(palette.cardStroke, lineWidth: 1)
+                                )
+                        )
+                        .shadow(color: palette.accent.opacity(0.15), radius: 30, y: -12)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
-                        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 5)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .gesture(
+                            DragGesture()
+                                .onEnded { value in
+                                    if value.translation.height > 50 {
+                                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                            isToolPanelExpanded = false
+                                        }
+                                    }
+                                }
+                        )
+                    }
                 }
-                
-                // 3. Overlays (Toasts, etc)
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isToolPanelExpanded)
+
+                // 3. Overlays
                 if let message = viewModel.errorMessage {
-                    errorToast(message)
+                    errorToast(message, palette: palette)
                 }
 
-                // Unified Progress Overlay (handles export & success/confetti)
-                // We keep it visible if scanning OR if we just finished (exportSuccess)
                 if viewModel.isScanning || viewModel.exportSuccess {
                     PublishProgressOverlay(
                         currentStep: viewModel.exportSuccess ? .complete : viewModel.publishStep,
@@ -96,7 +136,6 @@ struct EditorDetailView: View {
         }
         .onChange(of: viewModel.exportSuccess) { success in
             if success {
-                // Small delay to ensure the overlay transition is smooth before dismissal
                 Task {
                     try? await Task.sleep(nanoseconds: 300_000_000)
                     await MainActor.run {
@@ -123,7 +162,7 @@ struct EditorDetailView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This will remove the video and its edits from MyTube.")
+            Text("This will remove the video and its edits from Nook.")
         }
         .onDisappear {
             if viewModel.exportSuccess {
@@ -136,23 +175,40 @@ struct EditorDetailView: View {
 
 // MARK: - Components
 extension EditorDetailView {
-    
-    var header: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        return HStack {
+
+    func editorHeader(palette: KidPalette) -> some View {
+        HStack(spacing: 16) {
+            // Close Button
             Button {
                 player.pause()
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(palette.accent)
-                    .frame(width: 44, height: 44)
-                    .background(colorScheme == .dark ? Color.white.opacity(0.15) : Color.white.opacity(0.8), in: Circle())
+                ZStack {
+                    Circle()
+                        .fill(palette.cardFill)
+                        .frame(width: 48, height: 48)
+
+                    Image(systemName: "xmark")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(palette.accent)
+                }
+                .shadow(color: palette.accent.opacity(0.1), radius: 8, y: 4)
             }
-            
+
+            // Title
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Editing")
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Text(viewModel.video.title)
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+
             Spacer()
-            
+
+            // Export Button
             if viewModel.isExporting {
                 ProgressView()
                     .tint(palette.accent)
@@ -160,32 +216,43 @@ extension EditorDetailView {
                 Button {
                     viewModel.requestExport()
                 } label: {
-                    Text("Export")
-                        .font(.headline)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                        .background(palette.accent)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 18))
+                        Text("Save")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [palette.accent, palette.accentSecondary],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
+                    .shadow(color: palette.accent.opacity(0.3), radius: 12, y: 6)
                 }
                 .disabled(!viewModel.isReady || viewModel.isPreviewLoading)
                 .opacity((!viewModel.isReady || viewModel.isPreviewLoading) ? 0.5 : 1)
             }
         }
-        .frame(height: 50)
+        .frame(height: 56)
     }
-    
-    func previewArea(in geometry: GeometryProxy) -> some View {
-        // Calculate optimal size maintaining aspect ratio within available space
-        
+
+    func previewArea(palette: KidPalette, geometry: GeometryProxy) -> some View {
         GeometryReader { geo in
             let availableWidth = geo.size.width
             let availableHeight = geo.size.height
             let aspectRatio = max(viewModel.sourceAspectRatio, 0.1)
-            
+
             let heightForWidth = availableWidth / aspectRatio
             let widthForHeight = availableHeight * aspectRatio
-            
+
             let (videoWidth, videoHeight): (CGFloat, CGFloat) = {
                 if heightForWidth <= availableHeight {
                     return (availableWidth, heightForWidth)
@@ -193,15 +260,25 @@ extension EditorDetailView {
                     return (widthForHeight, availableHeight)
                 }
             }()
-            
+
             ZStack {
+                // Ambient glow behind video
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(palette.accent.opacity(0.1))
+                    .blur(radius: 30)
+                    .frame(width: videoWidth + 40, height: videoHeight + 40)
+
                 // Video Layer
                 VideoPlayer(player: player)
                     .frame(width: videoWidth, height: videoHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
-                
-                // Interactive Overlays
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(palette.cardStroke, lineWidth: 2)
+                    )
+                    .shadow(color: palette.accent.opacity(0.15), radius: 20, y: 10)
+
+                // Sticker Overlay (Draggable)
                 if let sticker = viewModel.selectedSticker {
                     StickerOverlayView(
                         sticker: sticker,
@@ -210,99 +287,133 @@ extension EditorDetailView {
                     )
                     .frame(width: videoWidth, height: videoHeight)
                 }
-                
+
                 // Loading / Play State
                 if viewModel.isPreviewLoading {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(.white)
-                        .shadow(radius: 2)
+                    ZStack {
+                        Circle()
+                            .fill(palette.cardFill)
+                            .frame(width: 80, height: 80)
+
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(palette.accent)
+                            .scaleEffect(1.3)
+                    }
+                    .shadow(radius: 10)
                 } else if viewModel.selectedSticker == nil {
                     Button(action: togglePlayback) {
-                        Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 64))
-                            .foregroundStyle(.white.opacity(0.8))
-                            .shadow(color: .black.opacity(0.3), radius: 10)
+                        ZStack {
+                            Circle()
+                                .fill(.black.opacity(0.3))
+                                .frame(width: 80, height: 80)
+                                .blur(radius: 8)
+
+                            Circle()
+                                .fill(palette.accent)
+                                .frame(width: 64, height: 64)
+
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(.white)
+                                .offset(x: isPlaying ? 0 : 2)
+                        }
+                        .shadow(color: palette.accent.opacity(0.4), radius: 12, y: 4)
                     }
-                    .opacity(isPlaying ? 0 : 1) // Hide when playing
+                    .opacity(isPlaying ? 0 : 1)
                 }
-                
+
                 // Time & Filter Badges
                 VStack {
                     Spacer()
                     HStack {
-                        Label(timeString(for: playhead), systemImage: "clock")
-                            .font(.caption.monospacedDigit())
-                            .padding(8)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .foregroundStyle(.primary)
-                        
+                        // Time badge
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.fill")
+                                .font(.system(size: 12))
+                            Text(timeString(for: playhead))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                        }
+                        .foregroundStyle(palette.accent)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+
                         Spacer()
-                        
+
+                        // Filter badge
                         if let filter = viewModel.selectedFilterID {
-                            Text(filterDisplayName(for: filter))
-                                .font(.caption)
-                                .padding(8)
-                                .background(.ultraThinMaterial, in: Capsule())
-                                .foregroundStyle(.primary)
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 12))
+                                Text(filterDisplayName(for: filter))
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(palette.accentSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule())
                         }
                     }
-                    .padding(12)
+                    .padding(16)
                 }
                 .frame(width: videoWidth, height: videoHeight)
             }
             .frame(width: availableWidth, height: availableHeight, alignment: .center)
         }
     }
-    
-    var sidebarTools: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        return VStack(spacing: 24) {
+
+    func playfulToolSidebar(palette: KidPalette, isExpanded: Binding<Bool>) -> some View {
+        VStack(spacing: 20) {
             ForEach(EditorDetailViewModel.Tool.allCases, id: \.self) { tool in
-                let isActive = viewModel.activeTool == tool
-                Button {
-                    HapticService.selection()
-                    viewModel.setActiveTool(tool)
-                } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: tool.iconName)
-                            .font(.system(size: 20, weight: .medium))
-                            .frame(width: 48, height: 48)
-                            .background(
-                                Circle()
-                                    .fill(isActive ? palette.accent : (colorScheme == .dark ? Color.white.opacity(0.2) : Color.white))
-                                    .shadow(color: palette.accent.opacity(0.15), radius: 8, y: 4)
-                            )
-                            .foregroundStyle(isActive ? .white : palette.accent)
-                        
-                        Text(tool.displayTitle)
-                            .font(.caption2.bold())
-                            .foregroundStyle(palette.accent)
-                            .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.5), radius: 2, x: 0, y: 1)
+                PlayfulToolButton(
+                    tool: tool,
+                    isActive: viewModel.activeTool == tool && isExpanded.wrappedValue,
+                    palette: palette,
+                    action: {
+                        HapticService.selection()
+                        if viewModel.activeTool == tool && isExpanded.wrappedValue {
+                            // Tapping active tool closes panel
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                isExpanded.wrappedValue = false
+                            }
+                        } else {
+                            // Tapping different tool or when collapsed opens panel
+                            viewModel.setActiveTool(tool)
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                isExpanded.wrappedValue = true
+                            }
+                        }
                     }
-                }
+                )
             }
+
             Spacer()
-            
-            // Delete Button at bottom of sidebar
+
+            // Delete Button
             Button {
                 showDeleteConfirm = true
             } label: {
-                Image(systemName: "trash.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.red)
-                    .frame(width: 48, height: 48)
-                    .background(colorScheme == .dark ? Color.white.opacity(0.2) : Color.white, in: Circle())
-                    .shadow(color: Color.black.opacity(0.1), radius: 5)
+                ZStack {
+                    Circle()
+                        .fill(palette.error.opacity(0.15))
+                        .frame(width: 56, height: 56)
+
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(palette.error)
+                }
+                .shadow(color: palette.error.opacity(0.2), radius: 8, y: 4)
             }
         }
+        .padding(.vertical, 16)
     }
-    
-    var toolPanel: some View {
+
+    func toolPanel(palette: KidPalette) -> some View {
         VStack(spacing: 0) {
             switch viewModel.activeTool {
             case .trim:
-                TrimTool(
+                TrimToolView(
                     start: viewModel.startTime,
                     end: viewModel.endTime,
                     duration: viewModel.video.duration,
@@ -311,32 +422,85 @@ extension EditorDetailView {
                     thumbnails: viewModel.timelineThumbnails,
                     updateStart: viewModel.updateStartTime,
                     updateEnd: viewModel.updateEndTime,
-                    onScrub: handlePlaybackScrub
+                    onScrub: handlePlaybackScrub,
+                    palette: palette
                 )
             case .effects:
-                EffectsTool(viewModel: viewModel)
+                EffectsToolView(viewModel: viewModel, palette: palette)
             case .overlays:
-                OverlaysTool(viewModel: viewModel)
+                OverlaysToolView(
+                    viewModel: viewModel,
+                    palette: palette,
+                    storagePaths: appEnvironment.storagePaths,
+                    profileId: viewModel.video.profileId
+                )
             case .audio:
-                AudioTool(viewModel: viewModel)
+                AudioToolView(viewModel: viewModel, palette: palette)
             case .text:
-                TextTool(viewModel: viewModel)
+                TextToolView(viewModel: viewModel, palette: palette)
             }
         }
     }
-    
-    func errorToast(_ message: String) -> some View {
+
+    func errorToast(_ message: String, palette: KidPalette) -> some View {
         VStack {
-            Text(message)
-                .font(.footnote.bold())
-                .foregroundStyle(.white)
-                .padding()
-                .background(Color.red.opacity(0.9), in: Capsule())
-                .padding(.top, 60)
-                .shadow(radius: 10)
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 18))
+                Text(message)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(palette.error, in: Capsule())
+            .shadow(color: palette.error.opacity(0.3), radius: 12, y: 6)
+            .padding(.top, 70)
+
             Spacer()
         }
         .onAppear { HapticService.error() }
+    }
+}
+
+// MARK: - Playful Tool Button
+
+private struct PlayfulToolButton: View {
+    let tool: EditorDetailViewModel.Tool
+    let isActive: Bool
+    let palette: KidPalette
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    // Background
+                    Circle()
+                        .fill(isActive ? palette.accent : palette.cardFill)
+                        .frame(width: 56, height: 56)
+
+                    // Active ring
+                    if isActive {
+                        Circle()
+                            .stroke(palette.accentSecondary, lineWidth: 3)
+                            .frame(width: 56, height: 56)
+                    }
+
+                    // Icon
+                    Image(systemName: tool.iconName)
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(isActive ? .white : palette.accent)
+                }
+                .shadow(color: palette.accent.opacity(isActive ? 0.3 : 0.1), radius: isActive ? 12 : 6, y: 4)
+
+                // Label
+                Text(tool.displayTitle)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(isActive ? palette.accent : .secondary)
+            }
+        }
+        .buttonStyle(BouncyButtonStyle(style: .icon))
     }
 }
 
@@ -401,7 +565,7 @@ extension EditorDetailView {
             wasPlayingBeforeScrub = false
         }
     }
-    
+
     func handlePlaybackEnd(_ notification: Notification) {
         guard let item = notification.object as? AVPlayerItem,
               item == player.currentItem else { return }
@@ -411,7 +575,7 @@ extension EditorDetailView {
             player.play()
         }
     }
-    
+
     func cleanup() {
         if viewModel.exportSuccess {
             viewModel.acknowledgeExport()
@@ -430,8 +594,9 @@ extension EditorDetailView {
     }
 }
 
-// MARK: - Subviews
-private struct TrimTool: View {
+// MARK: - Tool Views
+
+private struct TrimToolView: View {
     let start: Double
     let end: Double
     let duration: Double
@@ -441,32 +606,35 @@ private struct TrimTool: View {
     let updateStart: (Double) -> Void
     let updateEnd: (Double) -> Void
     let onScrub: (Bool) -> Void
-    
-    @EnvironmentObject private var appEnvironment: AppEnvironment
+    let palette: KidPalette
 
     private let minimumGap: Double = 2.0
     private var startRange: ClosedRange<Double> { 0...max(end - minimumGap, 0) }
     private var endRange: ClosedRange<Double> { min(start + minimumGap, duration)...duration }
 
     var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        VStack(alignment: .leading, spacing: 20) {
-            
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
             HStack {
-                Text("Trim Video")
-                    .font(.headline)
+                Image(systemName: "scissors")
+                    .font(.system(size: 18))
                     .foregroundStyle(palette.accent)
+                Text("Trim Your Video")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
                 Spacer()
                 Text(timeString(compositionDuration))
-                    .font(.subheadline.monospacedDigit().bold())
+                    .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(palette.accent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(palette.accent.opacity(0.15), in: Capsule())
             }
-            
-            // Scrubber
-            VStack(spacing: 8) {
-                // Thumbnail Strip
-                if !thumbnails.isEmpty {
-                    GeometryReader { geo in
+
+            // Thumbnail Strip with Playhead
+            if !thumbnails.isEmpty {
+                GeometryReader { geo in
+                    ZStack {
                         HStack(spacing: 0) {
                             ForEach(thumbnails.indices, id: \.self) { index in
                                 Image(uiImage: thumbnails[index])
@@ -476,37 +644,41 @@ private struct TrimTool: View {
                                     .clipped()
                             }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .overlay(
-                            // Playhead
-                            Rectangle()
-                                .fill(palette.accent)
-                                .frame(width: 3)
-                                .shadow(radius: 1)
-                                .offset(x: (playhead / max(compositionDuration, 0.1)) * geo.size.width - (geo.size.width / 2))
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(palette.cardStroke, lineWidth: 1)
                         )
+
+                        // Playhead
+                        Rectangle()
+                            .fill(palette.accent)
+                            .frame(width: 4)
+                            .clipShape(Capsule())
+                            .shadow(color: palette.accent.opacity(0.5), radius: 4)
+                            .offset(x: (playhead / max(compositionDuration, 0.1)) * geo.size.width - (geo.size.width / 2))
                     }
-                    .frame(height: 50)
-                    .shadow(color: .black.opacity(0.1), radius: 2)
                 }
-                
-                Slider(value: $playhead, in: 0...max(compositionDuration, 0.01), onEditingChanged: onScrub)
-                    .tint(palette.accent)
+                .frame(height: 56)
             }
-            
-            // Trim Sliders
-            HStack(spacing: 24) {
-                VStack(alignment: .leading) {
-                    Text("Start: \(timeString(start))")
-                        .font(.caption.bold())
+
+            // Scrubber Slider
+            Slider(value: $playhead, in: 0...max(compositionDuration, 0.01), onEditingChanged: onScrub)
+                .tint(palette.accent)
+
+            // Trim Range Sliders
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Start: \(timeString(start))", systemImage: "arrow.right.to.line")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                     Slider(value: Binding(get: { start }, set: updateStart), in: startRange)
                         .tint(palette.accent)
                 }
-                
-                VStack(alignment: .trailing) {
-                    Text("End: \(timeString(end))")
-                        .font(.caption.bold())
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Label("End: \(timeString(end))", systemImage: "arrow.left.to.line")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                     Slider(value: Binding(get: { end }, set: updateEnd), in: endRange)
                         .tint(palette.accent)
@@ -515,7 +687,7 @@ private struct TrimTool: View {
         }
         .padding(20)
     }
-    
+
     private func timeString(_ value: Double) -> String {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.minute, .second]
@@ -524,169 +696,209 @@ private struct TrimTool: View {
     }
 }
 
-private struct EffectsTool: View {
+private struct EffectsToolView: View {
     @ObservedObject var viewModel: EditorDetailViewModel
-    @EnvironmentObject private var appEnvironment: AppEnvironment
+    let palette: KidPalette
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        VStack(alignment: .leading, spacing: 16) {
-            
-            Text("Effects")
-                .font(.headline)
-                .foregroundStyle(palette.accent)
-                .padding(.horizontal, 20)
-            
+        VStack(alignment: .leading, spacing: 14) {
+            // Header
+            HStack {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 18))
+                    .foregroundStyle(palette.accent)
+                Text("Magic Effects")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 20)
+
+            // Filter Chips
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    FilterChip(title: "None", isSelected: viewModel.selectedFilterID == nil) {
+                HStack(spacing: 10) {
+                    FilterChipButton(title: "None", isSelected: viewModel.selectedFilterID == nil, palette: palette) {
                         viewModel.selectedFilterID = nil
                     }
-                    
+
                     ForEach(viewModel.filters) { filter in
-                        FilterChip(title: filter.displayName, isSelected: viewModel.selectedFilterID == filter.id) {
+                        FilterChipButton(title: filter.displayName, isSelected: viewModel.selectedFilterID == filter.id, palette: palette) {
                             viewModel.selectedFilterID = filter.id
                         }
                     }
                 }
                 .padding(.horizontal, 20)
             }
-            
+
             Divider().padding(.horizontal, 20)
-            
+
+            // Effect Sliders
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     ForEach(viewModel.effectControls, id: \.id) { control in
-                        HStack {
+                        HStack(spacing: 12) {
                             Image(systemName: control.iconName)
-                                .frame(width: 24)
+                                .font(.system(size: 16))
                                 .foregroundStyle(palette.accent)
+                                .frame(width: 24)
+
                             Text(control.displayName)
-                                .font(.subheadline.bold())
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.primary)
-                            Spacer()
+
+                            Slider(value: viewModel.binding(for: control), in: control.normalizedRange)
+                                .tint(palette.accent)
+
                             if abs(viewModel.binding(for: control).wrappedValue - Double(control.defaultValue)) > 0.01 {
                                 Button("Reset") { viewModel.resetEffect(control.id) }
-                                    .font(.caption)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
                                     .foregroundStyle(palette.accent)
                             }
                         }
-                        
-                        Slider(value: viewModel.binding(for: control), in: control.normalizedRange)
-                            .tint(palette.accent)
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.bottom, 16)
             }
         }
         .padding(.top, 16)
     }
 }
 
-private struct OverlaysTool: View {
+private struct OverlaysToolView: View {
     @ObservedObject var viewModel: EditorDetailViewModel
-    @EnvironmentObject private var appEnvironment: AppEnvironment
+    let palette: KidPalette
+    let storagePaths: StoragePaths
+    let profileId: UUID
+
+    @State private var showSelfieCaptureSheet = false
 
     var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header
             HStack {
-                Text("Stickers")
-                    .font(.headline)
+                Image(systemName: "face.smiling.inverse")
+                    .font(.system(size: 18))
                     .foregroundStyle(palette.accent)
+                Text("Fun Stickers")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
                 Spacer()
                 if viewModel.selectedSticker != nil {
                     Button("Remove") { viewModel.clearSticker() }
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.red)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(palette.error)
                 }
             }
             .padding(.horizontal, 20)
-            
+
+            Text("Drag stickers on your video!")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+
+            // Sticker Grid
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 16) {
-                    ForEach(viewModel.stickers) { sticker in
-                        StickerChip(
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 14) {
+                    // Selfie Sticker Button
+                    SelfieStickerCaptureButton(palette: palette) {
+                        HapticService.medium()
+                        showSelfieCaptureSheet = true
+                    }
+
+                    // User stickers (selfie stickers they've created)
+                    ForEach(viewModel.userStickers) { sticker in
+                        UserStickerChipButton(
                             asset: sticker,
-                            isSelected: viewModel.selectedSticker?.id == sticker.id
+                            isSelected: viewModel.selectedSticker?.id == sticker.id,
+                            palette: palette,
+                            onSelect: { viewModel.toggleSticker(sticker) },
+                            onDelete: { viewModel.deleteUserSticker(sticker) }
+                        )
+                    }
+
+                    // Built-in stickers
+                    ForEach(viewModel.stickers) { sticker in
+                        StickerChipButton(
+                            asset: sticker,
+                            isSelected: viewModel.selectedSticker?.id == sticker.id,
+                            palette: palette
                         ) {
                             viewModel.toggleSticker(sticker)
                         }
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.bottom, 16)
             }
         }
         .padding(.top, 16)
+        .fullScreenCover(isPresented: $showSelfieCaptureSheet) {
+            SelfieStickerCaptureView(
+                storagePaths: storagePaths,
+                profileId: profileId,
+                palette: palette
+            ) { newSticker in
+                viewModel.addUserSticker(newSticker)
+            }
+        }
     }
 }
 
-private struct AudioTool: View {
+private struct AudioToolView: View {
     @ObservedObject var viewModel: EditorDetailViewModel
-    @EnvironmentObject private var appEnvironment: AppEnvironment
-    @Environment(\.colorScheme) private var colorScheme
+    let palette: KidPalette
 
     var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header
             HStack {
-                Text("Music")
-                    .font(.headline)
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 18))
                     .foregroundStyle(palette.accent)
+                Text("Add Music")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
                 Spacer()
                 if viewModel.selectedMusic != nil {
                     Button("Remove") { viewModel.clearMusic() }
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.red)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(palette.error)
                 }
             }
             .padding(.horizontal, 20)
-            
+
+            // Volume Slider
             if viewModel.selectedMusic != nil {
-                 HStack {
+                HStack(spacing: 12) {
                     Image(systemName: "speaker.wave.2.fill")
-                         .foregroundStyle(palette.accent)
+                        .foregroundStyle(palette.accent)
                     Slider(value: $viewModel.musicVolume, in: 0...1)
                         .tint(palette.accent)
                 }
                 .padding(.horizontal, 20)
             }
-            
+
+            // Music List
             List {
                 ForEach(viewModel.musicTracks) { track in
-                    HStack {
-                        Button {
-                             if viewModel.previewingTrackId == track.id {
-                                 viewModel.stopMusicPreview()
-                             } else {
-                                 viewModel.previewMusic(track)
-                             }
-                        } label: {
-                            Image(systemName: viewModel.previewingTrackId == track.id ? "stop.circle.fill" : "play.circle.fill")
-                                .font(.title2)
-                                .foregroundStyle(palette.accent)
+                    MusicTrackRow(
+                        track: track,
+                        isSelected: viewModel.selectedMusic?.id == track.id,
+                        isPreviewing: viewModel.previewingTrackId == track.id,
+                        palette: palette,
+                        onPreview: {
+                            if viewModel.previewingTrackId == track.id {
+                                viewModel.stopMusicPreview()
+                            } else {
+                                viewModel.previewMusic(track)
+                            }
+                        },
+                        onSelect: {
+                            HapticService.selection()
+                            viewModel.toggleMusic(track)
                         }
-                        .buttonStyle(.plain)
-                        
-                        Text(track.displayName)
-                            .font(.body.bold())
-                            .foregroundStyle(.primary)
-                        
-                        Spacer()
-                        
-                        if viewModel.selectedMusic?.id == track.id {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(palette.accent)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        HapticService.selection()
-                        viewModel.toggleMusic(track)
-                    }
+                    )
                     .listRowBackground(Color.clear)
                 }
             }
@@ -700,49 +912,100 @@ private struct AudioTool: View {
     }
 }
 
-private struct TextTool: View {
+private struct MusicTrackRow: View {
+    let track: MusicAsset
+    let isSelected: Bool
+    let isPreviewing: Bool
+    let palette: KidPalette
+    let onPreview: () -> Void
+    let onSelect: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onPreview) {
+                ZStack {
+                    Circle()
+                        .fill(palette.accent.opacity(0.15))
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: isPreviewing ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(palette.accent)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Text(track.displayName)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(palette.accent)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+    }
+}
+
+private struct TextToolView: View {
     @ObservedObject var viewModel: EditorDetailViewModel
-    @EnvironmentObject private var appEnvironment: AppEnvironment
+    let palette: KidPalette
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 16) {
+                // Header
                 HStack {
-                    Text("Text Overlay")
-                         .font(.headline)
-                         .foregroundStyle(palette.accent)
+                    Image(systemName: "textformat.abc")
+                        .font(.system(size: 18))
+                        .foregroundStyle(palette.accent)
+                    Text("Add Text")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
                     Spacer()
                     if !viewModel.overlayText.isEmpty {
                         Button("Clear") { viewModel.overlayText = "" }
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.red)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(palette.error)
                     }
                 }
-                
-                TextField("Enter text...", text: $viewModel.overlayText)
-                    .textFieldStyle(.roundedBorder)
-                    .foregroundStyle(.primary)
-                    .submitLabel(.done)
-                    .colorScheme(colorScheme)
 
-                // Styles
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Font")
-                        .font(.caption.bold())
+                // Text Input
+                TextField("Type your message...", text: $viewModel.overlayText)
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(palette.cardFill)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(palette.cardStroke, lineWidth: 1)
+                    )
+                    .submitLabel(.done)
+
+                // Font Selection
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Font Style")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 10) {
                             ForEach(EditorDetailViewModel.availableFonts, id: \.self) { font in
                                 Button {
                                     viewModel.textFont = font
                                 } label: {
                                     Text("Aa")
                                         .font(.custom(font, size: 18))
-                                        .padding(8)
+                                        .frame(width: 44, height: 44)
                                         .background(
-                                            Circle().fill(viewModel.textFont == font ? palette.accent : (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.05)))
+                                            Circle().fill(viewModel.textFont == font ? palette.accent : palette.cardFill)
                                         )
                                         .foregroundStyle(viewModel.textFont == font ? .white : .primary)
                                 }
@@ -750,35 +1013,35 @@ private struct TextTool: View {
                         }
                     }
                 }
-                
-                // Colors
-                 VStack(alignment: .leading, spacing: 10) {
+
+                // Color Selection
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Color")
-                        .font(.caption.bold())
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 10) {
                             ForEach(EditorDetailViewModel.textColors, id: \.self) { color in
                                 Button {
                                     viewModel.textColor = color
                                 } label: {
                                     Circle()
                                         .fill(color)
-                                        .frame(width: 32, height: 32)
+                                        .frame(width: 36, height: 36)
                                         .overlay(
-                                            Circle().stroke(Color.gray.opacity(0.3), lineWidth: viewModel.textColor == color ? 3 : 1)
+                                            Circle().stroke(viewModel.textColor == color ? palette.accent : Color.clear, lineWidth: 3)
                                         )
-                                        .shadow(radius: 1)
+                                        .shadow(radius: 2)
                                 }
                             }
                         }
                     }
                 }
-                
+
                 // Position
-                 VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Position")
-                        .font(.caption.bold())
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                     Picker("Position", selection: $viewModel.textPosition) {
                         ForEach(EditorDetailViewModel.TextPosition.allCases, id: \.self) { pos in
@@ -787,11 +1050,11 @@ private struct TextTool: View {
                     }
                     .pickerStyle(.segmented)
                 }
-                
+
                 // Size
-                 VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Size: \(Int(viewModel.textSize))")
-                        .font(.caption.bold())
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                     Slider(value: $viewModel.textSize, in: 24...96)
                         .tint(palette.accent)
@@ -803,71 +1066,169 @@ private struct TextTool: View {
 }
 
 // MARK: - Helper Components
-private struct FilterChip: View {
+
+private struct FilterChipButton: View {
     let title: String
     let isSelected: Bool
+    let palette: KidPalette
     let action: () -> Void
-    @EnvironmentObject private var appEnvironment: AppEnvironment
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
         Button(action: action) {
             Text(title)
-                .font(.caption.bold())
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
                 .background(
                     Capsule()
-                        .fill(isSelected ? palette.accent : (colorScheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.05)))
+                        .fill(isSelected ? palette.accent : palette.cardFill)
                 )
                 .foregroundStyle(isSelected ? .white : .primary)
+                .overlay(
+                    Capsule()
+                        .stroke(isSelected ? palette.accent : palette.cardStroke, lineWidth: 1)
+                )
         }
     }
 }
 
-private struct StickerChip: View {
+private struct StickerChipButton: View {
     let asset: StickerAsset
     let isSelected: Bool
+    let palette: KidPalette
     let action: () -> Void
-    @EnvironmentObject private var appEnvironment: AppEnvironment
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let palette = appEnvironment.activeProfile.theme.kidPalette
         Button(action: action) {
             VStack {
                 if let image = ResourceLibrary.stickerImage(named: asset.id) {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 60, height: 60)
+                        .frame(width: 56, height: 56)
                 } else {
                     Image(systemName: "photo")
-                        .frame(width: 60, height: 60)
-                        .background(Color.gray.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                        .font(.system(size: 24))
+                        .frame(width: 56, height: 56)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(8)
+            .padding(10)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? palette.accent.opacity(0.1) : Color.clear)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(isSelected ? palette.accent : Color.clear, lineWidth: 2)
-                    )
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? palette.accent.opacity(0.15) : palette.cardFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? palette.accent : Color.clear, lineWidth: 2)
+            )
+            .shadow(color: isSelected ? palette.accent.opacity(0.2) : .clear, radius: 8, y: 4)
+        }
+    }
+}
+
+/// Button to capture a selfie and create a sticker
+private struct SelfieStickerCaptureButton: View {
+    let palette: KidPalette
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                ZStack {
+                    Circle()
+                        .fill(palette.accent.opacity(0.15))
+                        .frame(width: 56, height: 56)
+
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(palette.accent)
+                }
+
+                Text("Selfie")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(palette.accent)
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(palette.cardFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(palette.accent.opacity(0.5), style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
             )
         }
     }
 }
 
+/// Button for user-created stickers with delete option
+private struct UserStickerChipButton: View {
+    let asset: StickerAsset
+    let isSelected: Bool
+    let palette: KidPalette
+    let onSelect: () -> Void
+    let onDelete: () -> Void
+
+    @State private var showDeleteConfirm = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack {
+                if let fileURL = asset.fileURL,
+                   let image = UIImage(contentsOfFile: fileURL.path) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 56, height: 56)
+                } else {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 24))
+                        .frame(width: 56, height: 56)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? palette.accent.opacity(0.15) : palette.cardFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? palette.accent : Color.clear, lineWidth: 2)
+            )
+            .shadow(color: isSelected ? palette.accent.opacity(0.2) : .clear, radius: 8, y: 4)
+        }
+        .contextMenu {
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Label("Delete Sticker", systemImage: "trash")
+            }
+        }
+        .confirmationDialog(
+            "Delete this sticker?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                HapticService.error()
+                onDelete()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+}
+
+// MARK: - Tool Extensions
+
 private extension EditorDetailViewModel.Tool {
     var displayTitle: String {
         switch self {
         case .trim: return "Trim"
-        case .effects: return "FX"
+        case .effects: return "Effects"
         case .overlays: return "Stickers"
-        case .audio: return "Sound"
+        case .audio: return "Music"
         case .text: return "Text"
         }
     }
@@ -876,9 +1237,9 @@ private extension EditorDetailViewModel.Tool {
         switch self {
         case .trim: return "scissors"
         case .effects: return "wand.and.stars"
-        case .overlays: return "face.smiling"
-        case .audio: return "music.note"
-        case .text: return "textformat"
+        case .overlays: return "face.smiling.inverse"
+        case .audio: return "music.note.list"
+        case .text: return "textformat.abc"
         }
     }
 }

@@ -102,6 +102,138 @@ actor RemoteVideoDownloader {
         return try await task.value
     }
 
+    /// Downloads only the thumbnail for a remote video, without downloading the full video.
+    /// This allows showing previews in the feed before the user decides to download.
+    /// Does not change the video status - it remains "available" until full download.
+    @discardableResult
+    func downloadThumbnail(videoId: String, profileId: UUID) async throws -> RemoteVideoModel {
+        let input = try await prepareThumbnailDownload(videoId: videoId)
+
+        // Skip if thumbnail already exists locally
+        if let existingPath = input.previousThumbPath {
+            let fullPath = storagePaths.rootURL.appendingPathComponent(existingPath)
+            if fileManager.fileExists(atPath: fullPath.path) {
+                logger.debug("Thumbnail already exists for \(videoId, privacy: .public)")
+                return try await fetchCurrentModel(videoId: videoId)
+            }
+        }
+
+        guard input.thumbKey != nil || input.thumbURL != nil else {
+            logger.warning("No thumbnail URL/key for video \(videoId, privacy: .public)")
+            return try await fetchCurrentModel(videoId: videoId)
+        }
+
+        do {
+            let thumbData = try await fetchThumbnailData(
+                key: input.thumbKey,
+                url: input.thumbURL
+            )
+
+            guard let thumbData else {
+                logger.warning("Thumbnail data was nil for \(videoId, privacy: .public)")
+                return try await fetchCurrentModel(videoId: videoId)
+            }
+
+            let thumbURL = try resolveThumbURL(
+                videoId: videoId,
+                profileId: profileId,
+                mime: input.thumbMime,
+                existingPath: input.previousThumbPath
+            )
+
+            guard let thumbURL else {
+                return try await fetchCurrentModel(videoId: videoId)
+            }
+
+            try write(data: thumbData, to: thumbURL)
+            let relativeThumbPath = relativePath(for: thumbURL)
+
+            // Update entity with thumb path only, don't change status
+            return try await updateEntity(videoId: videoId) { entity in
+                entity.localThumbPath = relativeThumbPath
+            }
+        } catch {
+            logger.warning("Thumbnail download failed for \(videoId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            // Don't throw - thumbnail download failure shouldn't block anything
+            return try await fetchCurrentModel(videoId: videoId)
+        }
+    }
+
+    private struct ThumbnailDownloadInput: Sendable {
+        let videoId: String
+        let thumbURL: URL?
+        let thumbKey: String?
+        let thumbMime: String
+        let previousThumbPath: String?
+    }
+
+    private func prepareThumbnailDownload(videoId: String) async throws -> ThumbnailDownloadInput {
+        let context = persistence.newBackgroundContext()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            context.perform {
+                do {
+                    let request = RemoteVideoEntity.fetchRequest()
+                    request.predicate = NSPredicate(format: "videoId == %@", videoId)
+                    request.fetchLimit = 1
+
+                    guard let entity = try context.fetch(request).first else {
+                        throw DownloadError.videoRecordMissing
+                    }
+
+                    // Parse metadata to get thumb info
+                    var thumbURL: URL?
+                    var thumbKey: String?
+                    var thumbMime = "image/jpeg"
+
+                    if let metadataString = entity.metadataJSON,
+                       let metadataData = metadataString.data(using: .utf8),
+                       let message = try? self.jsonDecoder.decode(VideoShareMessage.self, from: metadataData) {
+                        thumbURL = URL(string: message.thumb.url)
+                        thumbKey = message.thumb.key
+                        thumbMime = message.thumb.mime
+                    } else if let thumbURLString = entity.thumbURL {
+                        thumbURL = URL(string: thumbURLString)
+                    }
+
+                    let input = ThumbnailDownloadInput(
+                        videoId: videoId,
+                        thumbURL: thumbURL,
+                        thumbKey: thumbKey,
+                        thumbMime: thumbMime,
+                        previousThumbPath: entity.localThumbPath
+                    )
+                    continuation.resume(returning: input)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func fetchCurrentModel(videoId: String) async throws -> RemoteVideoModel {
+        let context = persistence.newBackgroundContext()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            context.perform {
+                do {
+                    let request = RemoteVideoEntity.fetchRequest()
+                    request.predicate = NSPredicate(format: "videoId == %@", videoId)
+                    request.fetchLimit = 1
+
+                    guard let entity = try context.fetch(request).first,
+                          let model = RemoteVideoModel(entity: entity) else {
+                        throw DownloadError.videoRecordMissing
+                    }
+
+                    continuation.resume(returning: model)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private func executeDownload(videoId: String, profileId: UUID) async throws -> RemoteVideoModel {
         let input = try await prepareDownload(videoId: videoId)
 

@@ -31,7 +31,7 @@ struct PinKeypad: View {
                                 .frame(maxWidth: .infinity, minHeight: 54)
                                 .background(buttonBackground(for: value))
                                 .foregroundStyle(.primary)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         }
                         .disabled(!isEnabled)
                     }

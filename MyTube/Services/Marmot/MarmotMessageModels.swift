@@ -247,13 +247,26 @@ struct ReportMessage: Codable, Sendable {
     let by: String
     let ts: Double
 
+    // New fields for 3-level reporting (optional for backward compatibility)
+    let level: Int?                  // 1=peer, 2=parent, 3=moderator (default: 1)
+    let recipientType: String?       // "group", "parents", "moderators"
+    let reporterChild: String?       // Child profile UUID who initiated
+    let reportId: String?            // UUID for tracking across systems
+
+    /// Computed property for backward compatibility
+    var resolvedLevel: Int { level ?? 1 }
+
     init(
         videoId: String,
         subjectChild: String,
         reason: String,
         note: String?,
         by: String,
-        timestamp: Date
+        timestamp: Date,
+        level: Int? = nil,
+        recipientType: String? = nil,
+        reporterChild: String? = nil,
+        reportId: String? = nil
     ) {
         self.t = MarmotPayloadType.report.rawValue
         self.videoId = videoId
@@ -262,6 +275,10 @@ struct ReportMessage: Codable, Sendable {
         self.note = note
         self.by = by
         self.ts = timestamp.timeIntervalSince1970
+        self.level = level
+        self.recipientType = recipientType
+        self.reporterChild = reporterChild
+        self.reportId = reportId
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -272,7 +289,43 @@ struct ReportMessage: Codable, Sendable {
         case note
         case by
         case ts
+        case level
+        case recipientType = "recipient_type"
+        case reporterChild = "reporter_child"
+        case reportId = "report_id"
     }
+}
+
+/// Message from Tubestr moderators in response to Level 3 reports
+struct ModeratorActionMessage: Codable, Sendable {
+    let t: String                    // "mytube/mod_action"
+    let reportId: String             // Original report ID
+    let videoId: String?             // Target video (if applicable)
+    let subjectParentKey: String?    // Target parent (if applicable)
+    let action: String               // Action taken
+    let reason: String?              // Explanation
+    let by: String                   // Moderator npub
+    let ts: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case t
+        case reportId = "report_id"
+        case videoId = "video_id"
+        case subjectParentKey = "subject_parent_key"
+        case action
+        case reason
+        case by
+        case ts
+    }
+}
+
+/// Actions moderators can take
+enum ModeratorAction: String, Codable, Sendable {
+    case dismiss = "dismiss"         // Report dismissed, no action
+    case warn = "warn"               // Warning issued
+    case removeContent = "remove"    // Content removed
+    case suspendAccount = "suspend"  // Account suspended
+    case banAccount = "ban"          // Account banned
 }
 
 extension Data {

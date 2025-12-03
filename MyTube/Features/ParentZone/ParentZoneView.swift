@@ -17,11 +17,11 @@ struct ParentZoneView: View {
     @State private var showingResetAlert = false
     @State private var isAddingChild = false
     @State private var newChildName = ""
-    @State private var newChildTheme: ThemeDescriptor = .ocean
+    @State private var newChildTheme: ThemeDescriptor = .campfire
     @State private var isImportingChild = false
     @State private var importChildName = ""
     @State private var importChildSecret = ""
-    @State private var importChildTheme: ThemeDescriptor = .ocean
+    @State private var importChildTheme: ThemeDescriptor = .campfire
     @State private var sharePromptVideo: VideoModel?
     @State private var shareRecipient: String = ""
     @State private var shareStatusMessage: String?
@@ -238,7 +238,7 @@ struct ParentZoneView: View {
         .sheet(isPresented: $isRequestingFollow) {
             followRequestSheetContent
         }
-        .alert("Reset Tubestr?", isPresented: $showingResetAlert) {
+        .alert("Reset Nook?", isPresented: $showingResetAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Reset", role: .destructive) {
                 viewModel.resetApp()
@@ -666,8 +666,8 @@ struct ParentZoneView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isSelected ? Color.accentColor : Color.clear)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? environment.activeProfile.theme.kidPalette.accent : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -887,7 +887,7 @@ private extension ParentZoneView {
                 } else {
                     Text(viewModel.storageMode == .managed ?
                          "Start a free trial or refresh managed storage when you're ready." :
-                         "Switch to Managed storage to try the Tubestr cloud uploads.")
+                         "Switch to Managed storage to try the Nook cloud uploads.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1123,7 +1123,7 @@ private extension ParentZoneView {
                     } else {
                         Text(viewModel.storageMode == .managed ?
                              "Start a free trial or refresh managed storage status when you're ready." :
-                             "Switch to Managed storage to access the Tubestr cloud trial and managed uploads.")
+                             "Switch to Managed storage to access the Nook cloud trial and managed uploads.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1219,32 +1219,18 @@ private extension ParentZoneView {
     }
 
     private var safetySection: some View {
-        insetGroupedList {
-            Section("Inbound Reports") {
-                let inbound = viewModel.inboundReports()
-                if inbound.isEmpty {
-                    Text("No one has reported your family's videos.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(inbound, id: \.id) { report in
-                        inboundReportRow(report)
-                    }
+        ScrollView {
+            ConversationCardsView(
+                inboundReports: viewModel.inboundReports(),
+                outboundReports: viewModel.outboundReports(),
+                onMarkRead: { report in
+                    viewModel.markReportReviewed(report)
+                },
+                onStartConversation: { report in
+                    viewModel.markReportAsConversationHad(report)
                 }
-            }
-
-            Section("Outbound Reports") {
-                let outbound = viewModel.outboundReports()
-                if outbound.isEmpty {
-                    Text("You haven't reported any shared videos yet. Incoming shares travel over your family connections.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(outbound, id: \.id) { report in
-                        outboundReportRow(report)
-                    }
-                }
-            }
+            )
+            .padding(.top, 8)
         }
     }
 
@@ -1364,7 +1350,7 @@ private extension ParentZoneView {
         HStack {
             Button {
                 newChildName = ""
-                newChildTheme = .ocean
+                newChildTheme = .campfire
                 isAddingChild = true
             } label: {
                 Label("Add Child", systemImage: "plus.circle.fill")
@@ -1375,7 +1361,7 @@ private extension ParentZoneView {
             Button {
                 importChildName = ""
                 importChildSecret = ""
-                importChildTheme = .ocean
+                importChildTheme = .campfire
                 isImportingChild = true
             } label: {
                 Label("Import Child", systemImage: "square.and.arrow.down")
@@ -1556,6 +1542,7 @@ private extension ParentZoneView {
         case .unfollow: return "Unfollowed"
         case .block: return "Blocked"
         case .deleted: return "Deleted"
+        case .conversationHad: return "We talked"
         }
     }
 
@@ -1864,7 +1851,7 @@ private extension ParentZoneView {
         }
         .padding(8)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
         )
     }
@@ -1889,7 +1876,7 @@ private extension ParentZoneView {
         }
         .padding(8)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(.tertiarySystemBackground))
         )
     }
@@ -2121,14 +2108,14 @@ private extension ParentZoneView {
 
     func resetChildCreationState() {
         newChildName = ""
-        newChildTheme = .ocean
+        newChildTheme = .campfire
         isAddingChild = false
     }
 
     func resetChildImportState() {
         importChildName = ""
         importChildSecret = ""
-        importChildTheme = .ocean
+        importChildTheme = .campfire
         isImportingChild = false
     }
 
@@ -2387,7 +2374,7 @@ private struct KeyExportCard: View {
         }
         .padding()
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemBackground))
         )
     }

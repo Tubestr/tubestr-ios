@@ -352,6 +352,11 @@ final class EditRenderer {
                 layer.contents = image
                 layer.contentsGravity = .resizeAspect
             }
+        case .userSticker(let fileURL):
+            if let image = UIImage(contentsOfFile: fileURL.path)?.cgImage {
+                layer.contents = image
+                layer.contentsGravity = .resizeAspect
+            }
         case .text(let text, let fontName, let color):
             let textLayer = CATextLayer()
             textLayer.string = text

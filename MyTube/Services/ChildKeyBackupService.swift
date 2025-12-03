@@ -286,8 +286,8 @@ actor ChildKeyBackupService {
                     _ = try profileStore.createProfileWithId(
                         id: childId,
                         name: backup.childName,
-                        theme: .ocean,
-                        avatarAsset: ThemeDescriptor.ocean.defaultAvatarAsset
+                        theme: .campfire,
+                        avatarAsset: ThemeDescriptor.campfire.defaultAvatarAsset
                     )
                     logger.info("Created profile for restored child \(backup.childName)")
                 } catch {

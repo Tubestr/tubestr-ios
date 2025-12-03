@@ -197,7 +197,7 @@ private struct ErrorBanner: View {
                 .font(.body)
                 .foregroundStyle(.white)
                 .padding()
-                .background(Color.red.opacity(0.9), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Color.red.opacity(0.9), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             Spacer()
         }
         .padding()
@@ -214,7 +214,7 @@ private struct PreparingOverlay: View {
                 .foregroundStyle(.white)
         }
         .padding(20)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 

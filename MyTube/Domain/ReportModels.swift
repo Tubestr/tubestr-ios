@@ -31,6 +31,37 @@ enum ReportReason: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// The escalation level of a report
+enum ReportLevel: Int, Codable, CaseIterable, Sendable {
+    case peer = 1        // Direct feedback to the other family
+    case parent = 2      // Escalate to both parents for guidance
+    case moderator = 3   // Escalate to Tubestr safety team
+
+    var displayName: String {
+        switch self {
+        case .peer: return "Tell Them"
+        case .parent: return "Ask Parents"
+        case .moderator: return "Report to Tubestr"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .peer: return "Let them know this doesn't feel good"
+        case .parent: return "Ask both parents to help figure this out"
+        case .moderator: return "This is serious and needs Tubestr's help"
+        }
+    }
+
+    var recipientType: String {
+        switch self {
+        case .peer: return "group"
+        case .parent: return "parents"
+        case .moderator: return "moderators"
+        }
+    }
+}
+
 enum ReportStatus: String, Codable, Sendable {
     case pending
     case acknowledged
@@ -44,6 +75,7 @@ enum ReportAction: String, Codable, Sendable {
     case unfollow
     case block
     case deleted
+    case conversationHad
 }
 
 struct ReportModel: Identifiable, Hashable, Sendable {
@@ -59,6 +91,9 @@ struct ReportModel: Identifiable, Hashable, Sendable {
     let lastActionAt: Date?
     let isOutbound: Bool
     let deliveredAt: Date?
+    let level: ReportLevel
+    let reporterChild: String?
+    let recipientType: String
 
     init(
         id: UUID,
@@ -72,7 +107,10 @@ struct ReportModel: Identifiable, Hashable, Sendable {
         actionTaken: ReportAction?,
         lastActionAt: Date?,
         isOutbound: Bool,
-        deliveredAt: Date?
+        deliveredAt: Date?,
+        level: ReportLevel = .peer,
+        reporterChild: String? = nil,
+        recipientType: String = "group"
     ) {
         self.id = id
         self.videoId = videoId
@@ -86,6 +124,9 @@ struct ReportModel: Identifiable, Hashable, Sendable {
         self.lastActionAt = lastActionAt
         self.isOutbound = isOutbound
         self.deliveredAt = deliveredAt
+        self.level = level
+        self.reporterChild = reporterChild
+        self.recipientType = recipientType
     }
 
     init?(entity: ReportEntity) {
@@ -106,6 +147,8 @@ struct ReportModel: Identifiable, Hashable, Sendable {
         }
         let status = ReportStatus(rawValue: statusRaw) ?? .pending
         let actionTaken = entity.actionTaken.flatMap { ReportAction(rawValue: $0) }
+        let level = ReportLevel(rawValue: Int(entity.level)) ?? .peer
+        let recipientType = entity.recipientType ?? "group"
 
         self.init(
             id: id,
@@ -119,7 +162,10 @@ struct ReportModel: Identifiable, Hashable, Sendable {
             actionTaken: actionTaken,
             lastActionAt: entity.lastActionAt,
             isOutbound: entity.isOutbound,
-            deliveredAt: entity.deliveredAt
+            deliveredAt: entity.deliveredAt,
+            level: level,
+            reporterChild: entity.reporterChild,
+            recipientType: recipientType
         )
     }
 

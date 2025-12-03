@@ -39,7 +39,7 @@ struct ProfileModel: Identifiable, Hashable {
             let id = entity.id,
             let name = entity.name,
             let themeRaw = entity.theme,
-            let theme = ThemeDescriptor(rawValue: themeRaw),
+            let theme = ThemeDescriptor(rawValue: themeRaw) ?? ThemeDescriptor(legacyRawValue: themeRaw),
             let avatarAsset = entity.avatarAsset
         else { return nil }
         self.init(
@@ -57,8 +57,8 @@ extension ProfileModel {
         ProfileModel(
             id: UUID(),
             name: "",
-            theme: .ocean,
-            avatarAsset: ThemeDescriptor.ocean.defaultAvatarAsset
+            theme: .campfire,
+            avatarAsset: ThemeDescriptor.campfire.defaultAvatarAsset
         )
     }
 }
@@ -268,10 +268,21 @@ struct RankingStateModel: Hashable {
 }
 
 enum ThemeDescriptor: String, CaseIterable {
-    case ocean
-    case sunset
-    case forest
-    case galaxy
+    case campfire
+    case treehouse
+    case blanketFort
+    case starlight
+
+    /// Initialize from legacy theme names for backward compatibility with existing user data
+    init?(legacyRawValue: String) {
+        switch legacyRawValue {
+        case "campfire", "ocean": self = .campfire
+        case "treehouse", "forest": self = .treehouse
+        case "blanketFort", "sunset": self = .blanketFort
+        case "starlight", "galaxy": self = .starlight
+        default: return nil
+        }
+    }
 }
 
 struct VideoCreationRequest {

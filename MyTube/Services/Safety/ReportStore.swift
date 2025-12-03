@@ -79,6 +79,68 @@ final class ReportStore: ObservableObject {
                 entity.deliveredAt = deliveredAt
             }
 
+            // Set level fields from message
+            entity.level = Int16(message.resolvedLevel)
+            entity.reporterChild = message.reporterChild
+            entity.recipientType = message.recipientType ?? ReportLevel(rawValue: message.resolvedLevel)?.recipientType ?? "group"
+
+            try context.save()
+            guard let model = ReportModel(entity: entity) else {
+                throw PersistenceError.entityDecodeFailed
+            }
+            await MainActor.run {
+                self.upsertInMemory(model)
+            }
+            return model
+        }
+    }
+
+    func ingestReportMessage(
+        _ message: ReportMessage,
+        level: ReportLevel,
+        isOutbound: Bool,
+        createdAt: Date,
+        deliveredAt: Date? = nil,
+        defaultStatus: ReportStatus = .pending,
+        action: ReportAction? = nil
+    ) async throws -> ReportModel {
+        try await performBackground { context in
+            let request = ReportEntity.fetchRequest()
+            request.predicate = NSPredicate(
+                format: "videoId == %@ AND reporterKey == %@ AND subjectChild == %@",
+                message.videoId,
+                message.by,
+                message.subjectChild
+            )
+            request.fetchLimit = 1
+
+            let entity = try context.fetch(request).first ?? ReportEntity(context: context)
+            if entity.id == nil {
+                entity.id = UUID()
+            }
+
+            entity.videoId = message.videoId
+            entity.subjectChild = message.subjectChild
+            entity.reporterKey = message.by
+            entity.reason = message.reason
+            entity.note = message.note
+            entity.createdAt = Date(timeIntervalSince1970: message.ts)
+            entity.status = entity.status ?? defaultStatus.rawValue
+            if let action {
+                entity.actionTaken = action.rawValue
+            } else if entity.actionTaken == nil {
+                entity.actionTaken = ReportAction.none.rawValue
+            }
+            entity.isOutbound = isOutbound
+            if let deliveredAt {
+                entity.deliveredAt = deliveredAt
+            }
+
+            // Set level fields
+            entity.level = Int16(level.rawValue)
+            entity.reporterChild = message.reporterChild
+            entity.recipientType = level.recipientType
+
             try context.save()
             guard let model = ReportModel(entity: entity) else {
                 throw PersistenceError.entityDecodeFailed

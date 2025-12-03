@@ -170,7 +170,7 @@ actor MarmotProjectionStore {
         case .like:
             try await projectLike(content: content)
         case .report:
-            try await projectReport(content: content, processedAt: processedDate)
+            try await projectReport(content: content, mlsGroupId: message.mlsGroupId, processedAt: processedDate)
         }
     }
 
@@ -220,6 +220,13 @@ actor MarmotProjectionStore {
             object: nil,
             userInfo: ["childKey": message.ownerChild]
         )
+
+        // Notify observers that a new video share was projected (triggers thumbnail download)
+        notificationCenter.post(
+            name: .remoteVideoShareProjected,
+            object: nil,
+            userInfo: ["videoId": message.videoId]
+        )
     }
 
     private func projectLifecycle(
@@ -255,19 +262,34 @@ actor MarmotProjectionStore {
         )
     }
 
-    private func projectReport(content: String, processedAt: Date) async throws {
+    private func projectReport(content: String, mlsGroupId: String, processedAt: Date) async throws {
         guard let data = content.data(using: .utf8) else {
             throw ProjectionError.invalidPayload
         }
         let message = try decoder.decode(ReportMessage.self, from: data)
+        let level = ReportLevel(rawValue: message.resolvedLevel) ?? .peer
         let createdAt = Date(timeIntervalSince1970: message.ts)
+
         _ = try await reportStore.ingestReportMessage(
             message,
+            level: level,
             isOutbound: false,
             createdAt: createdAt,
             deliveredAt: processedAt,
             defaultStatus: .pending,
             action: .none
+        )
+
+        // Notify about incoming report
+        notificationCenter.post(
+            name: .incomingReportReceived,
+            object: nil,
+            userInfo: [
+                "reportId": message.reportId ?? UUID().uuidString,
+                "level": level.rawValue,
+                "videoId": message.videoId,
+                "mlsGroupId": mlsGroupId
+            ]
         )
     }
 

@@ -1076,6 +1076,23 @@ final class ParentZoneViewModel: ObservableObject {
         }
     }
 
+    func markReportAsConversationHad(_ report: ReportModel) {
+        Task {
+            do {
+                try await environment.reportStore.updateStatus(
+                    reportId: report.id,
+                    status: .actioned,
+                    action: .conversationHad,
+                    lastActionAt: Date()
+                )
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
 
     func approvedParentKeys(forChild childId: UUID) -> [String] {
         guard let parentIdentity else { return [] }
@@ -2289,7 +2306,7 @@ final class ParentZoneViewModel: ObservableObject {
 
         var shareText: String {
             """
-            Tubestr Child Device Invite: \(childName)
+            Nook Child Device Invite: \(childName)
             Parent: \(parentPublicKey)
             Child: \(childPublicKey)
 
@@ -2387,7 +2404,7 @@ final class ParentZoneViewModel: ObservableObject {
             let childCount = allChildPublicKeys.count
             let childrenSuffix = childCount > 1 ? " +\(childCount - 1) more" : ""
             return """
-            Tubestr Family Invite\(nameDescriptor)\(childrenSuffix)
+            Nook Family Invite\(nameDescriptor)\(childrenSuffix)
             Parent: \(parentPublicKey)
             Profile: \(childPublicKey)
 

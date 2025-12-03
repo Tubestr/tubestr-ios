@@ -13,7 +13,7 @@ struct ConfettiView: View {
     @State private var particles: [ConfettiParticle] = []
     @State private var animationTimer: Timer?
 
-    let colors: [Color] = [.red, .blue, .green, .yellow, .orange, .purple, .pink, .cyan, .mint]
+    let colors: [Color] = [.orange, .pink, .yellow, .purple, .mint, Color(red: 1.0, green: 0.72, blue: 0.42), Color(red: 0.90, green: 0.69, blue: 0.73)]
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.016)) { timeline in

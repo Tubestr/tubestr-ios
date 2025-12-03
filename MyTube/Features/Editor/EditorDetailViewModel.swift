@@ -157,6 +157,7 @@ final class EditorDetailViewModel: ObservableObject {
     @Published private(set) var deleteSuccess = false
     @Published private(set) var filters: [FilterDescriptor] = []
     @Published private(set) var stickers: [StickerAsset] = []
+    @Published private(set) var userStickers: [StickerAsset] = []
     @Published private(set) var musicTracks: [MusicAsset] = []
     @Published private(set) var effectControls: [EffectControl]
     @Published private(set) var isReady = false
@@ -208,6 +209,10 @@ final class EditorDetailViewModel: ObservableObject {
 
         filters = FilterPipeline.presets() + FilterPipeline.lutPresets()
         stickers = ResourceLibrary.stickers()
+        userStickers = ResourceLibrary.userStickers(
+            from: environment.storagePaths,
+            profileId: video.profileId
+        )
         musicTracks = ResourceLibrary.musicTracks()
         updateSourceAspectRatio()
         trimmedDuration = endTime - startTime
@@ -287,6 +292,30 @@ final class EditorDetailViewModel: ObservableObject {
         selectedSticker = nil
         stickerTransform = StickerTransform()
         schedulePreviewRebuild()
+    }
+
+    /// Add a newly created user sticker and select it
+    func addUserSticker(_ sticker: StickerAsset) {
+        userStickers.insert(sticker, at: 0)  // Add at front (most recent)
+        selectedSticker = sticker
+        stickerTransform = StickerTransform()
+        schedulePreviewRebuild()
+    }
+
+    /// Delete a user sticker
+    func deleteUserSticker(_ sticker: StickerAsset) {
+        guard sticker.isUserSticker else { return }
+
+        // If this sticker is selected, clear it
+        if selectedSticker?.id == sticker.id {
+            clearSticker()
+        }
+
+        // Remove from list
+        userStickers.removeAll { $0.id == sticker.id }
+
+        // Delete file
+        try? ResourceLibrary.deleteUserSticker(sticker)
     }
 
     func toggleMusic(_ track: MusicAsset) {
@@ -509,9 +538,18 @@ final class EditorDetailViewModel: ObservableObject {
                 width: scaledSize,
                 height: scaledSize
             )
+
+            // Determine overlay content based on sticker type
+            let content: OverlayContent
+            if let fileURL = sticker.fileURL {
+                content = .userSticker(fileURL: fileURL)
+            } else {
+                content = .sticker(name: sticker.id)
+            }
+
             overlays.append(
                 OverlayItem(
-                    content: .sticker(name: sticker.id),
+                    content: content,
                     frame: stickerFrame,
                     start: .zero,
                     end: clipDuration

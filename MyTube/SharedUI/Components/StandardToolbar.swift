@@ -15,7 +15,7 @@ struct StandardToolbar: ViewModifier {
         content.toolbar {
             if showLogo {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Text("Tubestr")
+                    Text("Nook")
                         .font(.system(.title2, design: .rounded).weight(.heavy))
                         .foregroundStyle(appEnvironment.activeProfile.theme.kidPalette.accent)
                 }

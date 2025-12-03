@@ -13,29 +13,49 @@ struct HomeFeedView: View {
     @StateObject private var viewModel = HomeFeedViewModel()
     @State private var selectedVideo: RankingEngine.RankedVideo?
     @State private var showingTrustedCreatorsInfo = false
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter
-    }()
-
-    private let shelfOrder: [RankingEngine.Shelf] = [.forYou, .recent, .action, .favorites]
+    @Namespace private var heroNamespace
 
     var body: some View {
+        let palette = appEnvironment.activeProfile.theme.kidPalette
+
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 32) {
-                    heroSection
-                    sharedSection
-                    shelvesSection
+                VStack(spacing: 0) {
+                    // Welcome Header
+                    welcomeHeader
+                        .padding(.horizontal, 24)
+                        .padding(.top, 16)
+                        .padding(.bottom, 24)
+
+                    // Main Content
+                    if viewModel.rankedVideos.isEmpty && viewModel.sharedSections.isEmpty {
+                        emptyStateCard
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 40)
+                    } else {
+                        // Shared Videos Section (Friends & Family first)
+                        if !viewModel.sharedSections.isEmpty {
+                            sharedVideosSection
+                                .padding(.bottom, 32)
+                        }
+
+                        // My Videos Grid
+                        if !viewModel.rankedVideos.isEmpty {
+                            myVideosSection
+                                .padding(.bottom, 32)
+                        }
+                    }
+
+                    // Add Friends CTA
+                    addFriendsCTA
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 40)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 32)
             }
             .refreshable {
                 await viewModel.refresh()
             }
-            .background(KidAppBackground())
+            .background(NookAppBackground(showDecorations: true, decorationIntensity: .gentle))
             .standardToolbar(showLogo: true)
         }
         .fullScreenCover(item: $selectedVideo) { rankedVideo in
@@ -59,79 +79,226 @@ struct HomeFeedView: View {
         }
     }
 
-    private var heroSection: some View {
-        Group {
-            if let hero = viewModel.hero {
-                HeroCard(
-                    video: hero.video,
-                    image: loadThumbnail(for: hero.video)
-                ) {
-                    selectedVideo = hero
+    // MARK: - Welcome Header
+
+    private var welcomeHeader: some View {
+        let palette = appEnvironment.activeProfile.theme.kidPalette
+        let greeting = greetingText
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(greeting)
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(palette.accent)
+
+                    Text("What will you create today?")
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
                 }
-            } else {
-                EmptyStateView()
+
+                Spacer()
+
+                // Profile avatar with glow
+                Circle()
+                    .fill(palette.accent.opacity(0.2))
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(palette.accent)
+                    )
+                    .nookGlow(.soft)
             }
         }
     }
 
-    private var sharedSection: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            if viewModel.sharedSections.isEmpty {
-                Text("No videos from trusted families yet. Ask a parent to open Parent Zone → Connections to share or accept connection invites.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("From Trusted Creators")
-                    .font(.title2.bold())
-                // if viewModel.remoteShareSummary.hasActivity {
-                //     remoteShareSummaryCard(summary: viewModel.remoteShareSummary)
-                // }
-                ForEach(viewModel.sharedSections) { section in
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(section.title)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            LazyHStack(spacing: 16) {
-                                ForEach(section.videos) { item in
-                                    RemoteVideoCard(
-                                        video: item,
-                                        image: loadRemoteThumbnail(for: item.video),
-                                        onTap: { viewModel.handleRemoteVideoTap(item) }
-                                    )
-                                }
+    private var greetingText: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let name = appEnvironment.activeProfile.name
+        if hour < 12 {
+            return "Good morning, \(name)!"
+        } else if hour < 17 {
+            return "Good afternoon, \(name)!"
+        } else {
+            return "Good evening, \(name)!"
+        }
+    }
+
+    // MARK: - My Videos Section
+
+    private var myVideosSection: some View {
+        let palette = appEnvironment.activeProfile.theme.kidPalette
+
+        return VStack(alignment: .leading, spacing: 16) {
+            // Section Header
+            HStack {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(palette.accent)
+
+                Text("My Videos")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Text("\(viewModel.rankedVideos.count)")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(palette.accent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(palette.accent.opacity(0.15), in: Capsule())
+            }
+            .padding(.horizontal, 24)
+
+            // Grid Gallery
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16),
+                    GridItem(.flexible(), spacing: 16)
+                ],
+                spacing: 20
+            ) {
+                ForEach(viewModel.rankedVideos) { rankedVideo in
+                    VideoTile(
+                        video: rankedVideo.video,
+                        image: loadThumbnail(for: rankedVideo.video),
+                        onTap: { selectedVideo = rankedVideo }
+                    )
+                }
+            }
+            .padding(.horizontal, 24)
+        }
+    }
+
+    // MARK: - Shared Videos Section
+
+    private var sharedVideosSection: some View {
+        let palette = appEnvironment.activeProfile.theme.kidPalette
+
+        return VStack(alignment: .leading, spacing: 16) {
+            // Section Header
+            HStack {
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(palette.accentSecondary)
+
+                Text("From Friends & Family")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+
+            // Shared Videos by Creator
+            ForEach(viewModel.sharedSections) { section in
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(section.title)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 24)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 16) {
+                            ForEach(section.videos) { item in
+                                SharedVideoTile(
+                                    video: item,
+                                    image: loadRemoteThumbnail(for: item.video),
+                                    onTap: { viewModel.handleRemoteVideoTap(item) }
+                                )
                             }
-                            .padding(.vertical, 4)
                         }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 4)
                     }
                 }
             }
-            addTrustedCreatorsButton
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var shelvesSection: some View {
-        ForEach(shelfOrder, id: \.self) { shelf in
-            if shelf == .forYou {
-                if let videos = viewModel.shelves[.forYou], videos.count > 1 {
-                    ShelfView(
-                        title: shelf.rawValue,
-                        videos: Array(videos.dropFirst()),
-                        onSelect: { selectedVideo = $0 },
-                        thumbnailLoader: loadThumbnail
-                    )
-                }
-            } else if let videos = viewModel.shelves[shelf], !videos.isEmpty {
-                ShelfView(
-                    title: shelf.rawValue,
-                    videos: videos,
-                    onSelect: { selectedVideo = $0 },
-                    thumbnailLoader: loadThumbnail
-                )
+    // MARK: - Empty State
+
+    private var emptyStateCard: some View {
+        let palette = appEnvironment.activeProfile.theme.kidPalette
+
+        return VStack(spacing: 24) {
+            // Animated illustration area
+            ZStack {
+                Circle()
+                    .fill(palette.accent.opacity(0.1))
+                    .frame(width: 140, height: 140)
+
+                Circle()
+                    .fill(palette.accent.opacity(0.15))
+                    .frame(width: 100, height: 100)
+
+                Image(systemName: "video.badge.plus")
+                    .font(.system(size: 48))
+                    .foregroundStyle(palette.accent)
+            }
+            .nookGlow(.medium)
+
+            VStack(spacing: 8) {
+                Text("Your Nook awaits!")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+
+                Text("Capture your first video to start\nfilling your cozy corner")
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(40)
+        .cozyCard(cornerRadius: 32, elevation: .floating)
     }
+
+    // MARK: - Add Friends CTA
+
+    private var addFriendsCTA: some View {
+        let palette = appEnvironment.activeProfile.theme.kidPalette
+
+        return Button {
+            showingTrustedCreatorsInfo = true
+        } label: {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(palette.accentSecondary.opacity(0.2))
+                        .frame(width: 48, height: 48)
+
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 22))
+                        .foregroundStyle(palette.accentSecondary)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Add Friends & Family")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+
+                    Text("Share videos with people you trust")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(palette.accent.opacity(0.6))
+            }
+            .padding(20)
+            .cozyCard(cornerRadius: 24, elevation: .raised)
+        }
+        .buttonStyle(BouncyButtonStyle(style: .secondary))
+    }
+
+    // MARK: - Helpers
 
     private func loadThumbnail(for video: VideoModel) -> UIImage? {
         let url = appEnvironment.videoLibrary.thumbnailFileURL(for: video)
@@ -144,441 +311,191 @@ struct HomeFeedView: View {
         }
         return UIImage(contentsOfFile: url.path)
     }
-
-    @ViewBuilder
-    private func remoteShareSummaryCard(summary: HomeFeedViewModel.RemoteShareSummary) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("\(summary.totalCount) shared \(summary.totalCount == 1 ? "video" : "videos") available", systemImage: "tray.and.arrow.down.fill")
-                .font(.headline)
-            HStack(spacing: 16) {
-                Label("\(summary.availableCount) queued", systemImage: "arrow.down.circle")
-                Label("\(summary.downloadedCount) ready", systemImage: "checkmark.circle")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            if let last = summary.lastSharedAt {
-                Text("Last shared \(HomeFeedView.relativeFormatter.localizedString(for: last, relativeTo: Date()))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemBackground))
-        )
-    }
-
-    private var addTrustedCreatorsButton: some View {
-        Button {
-            showingTrustedCreatorsInfo = true
-        } label: {
-            Label("Add More Trusted Creators", systemImage: "person.2.badge.plus")
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(KidPrimaryButtonStyle())
-    }
 }
 
-private struct HeroCard: View {
+// MARK: - Video Tile (Grid Item)
+
+private struct VideoTile: View {
     @EnvironmentObject private var appEnvironment: AppEnvironment
     let video: VideoModel
     let image: UIImage?
     let onTap: () -> Void
 
-    private var appAccent: Color { appEnvironment.activeProfile.theme.kidPalette.accent }
+    @State private var isPressed = false
 
-    /// Compute aspect ratio from the thumbnail image, defaulting to 16:9
-    private var imageAspectRatio: CGFloat {
-        guard let image else { return 16.0 / 9.0 }
-        guard image.size.height > 0 else { return 16.0 / 9.0 }
+    private var palette: KidPalette { appEnvironment.activeProfile.theme.kidPalette }
+    private var isPending: Bool { video.approvalStatus == .pending }
+
+    /// Compute aspect ratio from the thumbnail image
+    private var aspectRatio: CGFloat {
+        guard let image else { return 1.0 }
+        guard image.size.height > 0 else { return 1.0 }
         return image.size.width / image.size.height
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Button(action: onTap) {
-                ZStack(alignment: .bottomLeading) {
-                    Group {
-                        if let image {
-                            Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(imageAspectRatio, contentMode: .fit)
-                        } else {
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(Color.purple.opacity(0.2))
-                                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                                .overlay(
-                                    Image(systemName: "play.circle.fill")
-                                        .font(.system(size: 72))
-                                        .foregroundStyle(.white.opacity(0.8))
-                                )
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(appAccent.opacity(0.25), lineWidth: 1)
-                    )
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Hero Pick")
-                            .font(.caption)
-                            .bold()
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.ultraThickMaterial, in: Capsule())
-                        Text(video.title)
-                            .font(.largeTitle.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .shadow(radius: 8)
-                        Text(video.createdAt, style: .date)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.8))
-                    }
-                    .padding(24)
-                }
-            }
-            .buttonStyle(.plain)
-
-            PlaybackMetricRow(
-                accent: appAccent,
-                plays: video.playCount,
-                completionRate: video.completionRate,
-                replayRate: video.replayRate
-            )
-        }
-    }
-
-    private func percentage(_ value: Double) -> String {
-        String(format: "%.0f%%", min(max(value, 0.0), 1.0) * 100)
-    }
-}
-
-private struct ShelfView: View {
-    let title: String
-    let videos: [RankingEngine.RankedVideo]
-    let onSelect: (RankingEngine.RankedVideo) -> Void
-    let thumbnailLoader: (VideoModel) -> UIImage?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.title2.bold())
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 16) {
-                    ForEach(videos) { rankedVideo in
-                        VideoCard(
-                            video: rankedVideo.video,
-                            image: thumbnailLoader(rankedVideo.video),
-                            onTap: { onSelect(rankedVideo) }
-                        )
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        }
-    }
-}
-
-private struct VideoCard: View {
-    @EnvironmentObject private var appEnvironment: AppEnvironment
-    let video: VideoModel
-    let image: UIImage?
-    let onTap: () -> Void
-
-    private var appAccent: Color { appEnvironment.activeProfile.theme.kidPalette.accent }
-    private var isPending: Bool { video.approvalStatus == .pending }
-
-    /// Check if thumbnail is portrait orientation
-    private var isPortrait: Bool {
-        guard let image else { return false }
-        return image.size.height > image.size.width
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button(action: onTap) {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 10) {
+                // Thumbnail
                 ZStack(alignment: .topTrailing) {
-                    // Background for consistent card appearance
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.black.opacity(0.05))
+                    // Background
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(palette.cardFill)
 
-                    Group {
-                        if let image {
-                            Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                        } else {
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        VStack {
                             Image(systemName: "video.fill")
                                 .font(.system(size: 32))
-                                .foregroundStyle(.blue.opacity(0.6))
+                                .foregroundStyle(palette.accent.opacity(0.4))
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+
+                    // Badges
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if video.liked {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white)
+                                .padding(8)
+                                .background(Color.pink, in: Circle())
+                                .shadow(radius: 4)
+                        }
+
+                        if isPending {
+                            Text("Pending")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(palette.accent, in: Capsule())
                         }
                     }
-
-                    if video.liked {
-                        Image(systemName: "heart.fill")
-                            .foregroundStyle(.pink)
-                            .padding(8)
-                    }
-                    if isPending {
-                        Text("Needs Approval")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.orange, in: Capsule())
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .topLeading)
-                    }
+                    .padding(10)
                 }
-                .frame(width: isPortrait ? 100 : 220, height: 130)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .frame(height: 140)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(appAccent.opacity(0.25), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(palette.cardStroke, lineWidth: 1)
                 )
-            }
-            .buttonStyle(.plain)
+                .shadow(color: palette.accent.opacity(0.08), radius: 12, y: 6)
 
-            VStack(alignment: .leading, spacing: 6) {
+                // Title
                 Text(video.title)
-                    .font(.headline)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
                     .lineLimit(2)
-                Text(video.createdAt, style: .date)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: isPortrait ? 100 : 220, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onTap()
             }
         }
+        .buttonStyle(BouncyButtonStyle(style: .secondary))
     }
 }
 
-private struct RemoteVideoCard: View, Identifiable {
+// MARK: - Shared Video Tile
+
+private struct SharedVideoTile: View {
     @EnvironmentObject private var appEnvironment: AppEnvironment
     let video: HomeFeedViewModel.SharedRemoteVideo
     let image: UIImage?
     let onTap: () -> Void
 
-    var id: String { video.id }
-
-    private var appAccent: Color { appEnvironment.activeProfile.theme.kidPalette.accent }
-
-    private var formattedDuration: String {
-        let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = video.video.duration >= 3600 ? [.hour, .minute, .second] : [.minute, .second]
-        formatter.unitsStyle = .positional
-        formatter.zeroFormattingBehavior = .pad
-        return formatter.string(from: video.video.duration) ?? "--:--"
-    }
-
+    private var palette: KidPalette { appEnvironment.activeProfile.theme.kidPalette }
     private var status: RemoteVideoModel.Status { video.video.statusValue }
 
     private var statusIcon: String {
         switch status {
-        case .available:
-            return "arrow.down.circle"
-        case .downloading:
-            return "arrow.triangle.2.circlepath"
-        case .downloaded:
-            return "checkmark.seal.fill"
-        case .failed:
-            return "xmark.octagon.fill"
-        case .revoked:
-            return "exclamationmark.triangle.fill"
-        case .deleted:
-            return "trash.fill"
-        case .blocked:
-            return "hand.raised.fill"
-        case .reported:
-            return "exclamationmark.bubble.fill"
+        case .available: return "arrow.down.circle.fill"
+        case .downloading: return "arrow.triangle.2.circlepath"
+        case .downloaded: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.circle.fill"
+        case .revoked: return "xmark.circle.fill"
+        case .deleted: return "trash.circle.fill"
+        case .blocked: return "hand.raised.circle.fill"
+        case .reported: return "exclamationmark.bubble.fill"
         }
     }
 
     private var statusColor: Color {
         switch status {
-        case .available:
-            return .orange
-        case .downloading:
-            return .orange
-        case .downloaded:
-            return .green
-        case .failed:
-            return .red
-        case .revoked:
-            return .orange
-        case .deleted:
-            return .red
-        case .blocked:
-            return .red
-        case .reported:
-            return .orange
-        }
-    }
-
-    private var actionMessage: String {
-        switch status {
-        case .available:
-            return "Tap to download and watch."
-        case .downloading:
-            return "Downloading…"
-        case .downloaded:
-            return "Ready to watch."
-        case .failed:
-            return "Tap to retry download."
-        case .revoked:
-            return "Share revoked by sender."
-        case .deleted:
-            return "Video deleted by sender."
-        case .blocked:
-            return "This video is blocked."
-        case .reported:
-            return "This video is under review."
+        case .available: return palette.accentSecondary
+        case .downloading: return palette.accent
+        case .downloaded: return palette.success
+        case .failed, .revoked, .deleted, .blocked: return palette.error
+        case .reported: return palette.warning
         }
     }
 
     private var isActionable: Bool {
         switch status {
-        case .available, .failed, .downloaded:
-            return true
-        case .downloading, .revoked, .deleted, .blocked, .reported:
-            return false
+        case .available, .failed, .downloaded: return true
+        default: return false
         }
     }
 
-    /// Check if thumbnail is portrait orientation
-    private var isPortrait: Bool {
-        guard let image else { return false }
-        return image.size.height > image.size.width
-    }
-
-    /// Card width adapts to portrait vs landscape
-    private var cardWidth: CGFloat { isPortrait ? 110 : 240 }
-
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
+                // Thumbnail
                 ZStack {
-                    // Background for consistent card appearance
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.orange.opacity(0.08))
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(palette.cardFill)
 
-                    Group {
-                        if let image {
-                            Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                        } else {
-                            Image(systemName: "cloud.fill")
-                                .font(.system(size: 40))
-                                .foregroundStyle(.orange.opacity(0.8))
-                        }
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Image(systemName: "cloud.fill")
+                            .font(.system(size: 32))
+                            .foregroundStyle(palette.accent.opacity(0.4))
                     }
 
                     if status == .downloading {
                         ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(appAccent)
+                            .tint(.white)
+                            .scaleEffect(1.2)
                     }
                 }
-                .frame(width: cardWidth, height: 140)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .frame(width: 160, height: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(
-                            status == .downloaded ? Color.green.opacity(0.6) : appAccent.opacity(0.25),
-                            lineWidth: 1
-                        )
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(statusColor.opacity(0.3), lineWidth: 2)
                 )
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(video.video.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    Text("From \(video.ownerDisplayName)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 12) {
-                        Label(formattedDuration, systemImage: "clock")
-                        Label {
-                            Text(video.video.createdAt, style: .date)
-                        } icon: {
-                            Image(systemName: "calendar")
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                    Label(statusLabel, systemImage: statusIcon)
-                        .font(.caption)
+                // Status badge outside clip area
+                .overlay(alignment: .bottomLeading) {
+                    Image(systemName: statusIcon)
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(statusColor)
-
-                    if let error = video.video.downloadError, status == .failed {
-                        Text(error)
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                    }
-
-                    Text(actionMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .padding(6)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .padding(8)
                 }
-                .frame(width: cardWidth, alignment: .leading)
+                .shadow(color: palette.accent.opacity(0.08), radius: 12, y: 6)
+
+                // Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(video.video.title)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text("From \(video.ownerDisplayName)")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(width: 160, alignment: .leading)
             }
-            .padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(BouncyButtonStyle(style: .secondary))
         .disabled(!isActionable)
         .opacity(isActionable ? 1.0 : 0.6)
     }
-
-    private var statusLabel: String {
-        switch status {
-        case .available:
-            return "Available"
-        case .downloading:
-            return "Downloading"
-        case .downloaded:
-            return "Downloaded"
-        case .failed:
-            return "Failed"
-        case .revoked:
-            return "Revoked"
-        case .deleted:
-            return "Deleted"
-        case .blocked:
-            return "Blocked"
-        case .reported:
-            return "Reported"
-        }
-    }
 }
 
-private struct EmptyStateView: View {
-    var body: some View {
-        VStack(alignment: .center, spacing: 16) {
-            Image(systemName: "sparkles.rectangle.stack")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("Let’s create your first memory")
-                .font(.title3.bold())
-            Text("Record something magical to see it here.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(48)
-        .kidCardBackground()
-    }
-}
-
-private extension HomeFeedView {
-    var appAccent: Color { appEnvironment.activeProfile.theme.kidPalette.accent }
-}

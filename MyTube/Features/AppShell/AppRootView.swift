@@ -92,7 +92,7 @@ private struct CustomTabBar: View {
     
     private var divider: some View {
         Rectangle()
-            .fill(Color.primary.opacity(0.2))
+            .fill(accent.opacity(0.15))
             .frame(width: 1)
             .frame(maxHeight: .infinity)
             .padding(.vertical, 6)

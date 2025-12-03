@@ -10,10 +10,10 @@ import Foundation
 extension ThemeDescriptor {
     var displayName: String {
         switch self {
-        case .ocean: return "Ocean"
-        case .sunset: return "Sunset"
-        case .forest: return "Forest"
-        case .galaxy: return "Galaxy"
+        case .campfire: return "Campfire"
+        case .treehouse: return "Treehouse"
+        case .blanketFort: return "Blanket Fort"
+        case .starlight: return "Starlight"
         }
     }
 

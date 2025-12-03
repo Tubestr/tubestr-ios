@@ -45,6 +45,8 @@ final class AppEnvironment: ObservableObject {
     let groupMembershipCoordinator: any GroupMembershipCoordinating
     let reportStore: ReportStore
     let reportCoordinator: ReportCoordinator
+    let relationshipStore: RelationshipStore
+    let moderationAuditStore: ModerationAuditStore
     let childKeyBackupService: ChildKeyBackupService
     let backendClient: BackendClient
     let storageConfigurationStore: StorageConfigurationStore
@@ -104,6 +106,8 @@ final class AppEnvironment: ObservableObject {
         groupMembershipCoordinator: any GroupMembershipCoordinating,
         reportStore: ReportStore,
         reportCoordinator: ReportCoordinator,
+        relationshipStore: RelationshipStore,
+        moderationAuditStore: ModerationAuditStore,
         childKeyBackupService: ChildKeyBackupService,
         backendClient: BackendClient,
         storageConfigurationStore: StorageConfigurationStore,
@@ -153,6 +157,8 @@ final class AppEnvironment: ObservableObject {
         self.groupMembershipCoordinator = groupMembershipCoordinator
         self.reportStore = reportStore
         self.reportCoordinator = reportCoordinator
+        self.relationshipStore = relationshipStore
+        self.moderationAuditStore = moderationAuditStore
         self.childKeyBackupService = childKeyBackupService
         self.backendClient = backendClient
         self.storageConfigurationStore = storageConfigurationStore
@@ -366,13 +372,18 @@ enum StorageModeError: Error {
             parentalControlsStore: parentalControlsStore,
             mdkActor: mdkActor
         )
+        let relationshipStore = RelationshipStore(persistence: persistence)
+        let moderationAuditStore = ModerationAuditStore(persistence: persistence)
         let reportCoordinator = ReportCoordinator(
             reportStore: reportStore,
             remoteVideoStore: remoteVideoStore,
             marmotShareService: marmotShareService,
+            marmotTransport: marmotTransport,
             keyStore: keyStore,
             storagePaths: storagePaths,
-            groupMembershipCoordinator: groupMembershipCoordinator
+            groupMembershipCoordinator: groupMembershipCoordinator,
+            relationshipStore: relationshipStore,
+            moderationAuditStore: moderationAuditStore
         )
         let childKeyBackupService = ChildKeyBackupService(
             identityManager: identityManager,
@@ -422,6 +433,8 @@ enum StorageModeError: Error {
             groupMembershipCoordinator: groupMembershipCoordinator,
             reportStore: reportStore,
             reportCoordinator: reportCoordinator,
+            relationshipStore: relationshipStore,
+            moderationAuditStore: moderationAuditStore,
             childKeyBackupService: childKeyBackupService,
             backendClient: backendClient,
             storageConfigurationStore: storageConfigurationStore,
@@ -444,6 +457,22 @@ enum StorageModeError: Error {
         if onboardingState == .ready {
             Task {
                 await syncCoordinator.start()
+            }
+        }
+
+        // Trigger thumbnail download when video shares are projected
+        NotificationCenter.default.addObserver(
+            forName: .remoteVideoShareProjected,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard let videoId = notification.userInfo?["videoId"] as? String else { return }
+            Task { @MainActor in
+                let profileId = environment.activeProfile.id
+                _ = try? await environment.remoteVideoDownloader.downloadThumbnail(
+                    videoId: videoId,
+                    profileId: profileId
+                )
             }
         }
 

@@ -10,9 +10,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>app.tubestr.mobile</string>
+			<string>app.nook.family</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>nook</string>
 				<string>tubestr</string>
 			</array>
 		</dict>

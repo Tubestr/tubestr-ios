@@ -23,7 +23,7 @@ struct MyTubeApp: App {
     }
     
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "tubestr" || url.scheme == "mytube" else { return }
+        guard url.scheme == "nook" || url.scheme == "tubestr" || url.scheme == "mytube" else { return }
         
         // Store the URL and trigger navigation to Parent Zone
         environment.pendingDeepLink = url
