@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct PinKeypad: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     let onInput: (String) -> Void
     var isEnabled: Bool = true
 
@@ -17,6 +18,10 @@ struct PinKeypad: View {
         ["7", "8", "9"],
         ["⌫", "0", "OK"]
     ]
+
+    private var palette: KidPalette {
+        appEnvironment.activeProfile.theme.kidPalette
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -46,7 +51,7 @@ struct PinKeypad: View {
 
     private func buttonBackground(for value: String) -> some ShapeStyle {
         if value == "OK" {
-            return Color.accentColor.opacity(0.15)
+            return palette.accent.opacity(0.15)
         } else if value == "⌫" {
             return Color.secondary.opacity(0.12)
         } else {

@@ -10,10 +10,22 @@ import SwiftUI
 /// A celebratory confetti animation that plays when export completes.
 /// Uses Canvas for efficient rendering of many particles.
 struct ConfettiView: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     @State private var particles: [ConfettiParticle] = []
     @State private var animationTimer: Timer?
 
-    let colors: [Color] = [.orange, .pink, .yellow, .purple, .mint, Color(red: 1.0, green: 0.72, blue: 0.42), Color(red: 0.90, green: 0.69, blue: 0.73)]
+    /// Confetti colors derived from the current theme palette
+    private var colors: [Color] {
+        let palette = appEnvironment.activeProfile.theme.kidPalette
+        return [
+            palette.accent,
+            palette.accentSecondary,
+            palette.success,
+            palette.warning,
+            palette.accent.opacity(0.7),
+            palette.accentSecondary.opacity(0.7)
+        ]
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.016)) { timeline in

@@ -23,8 +23,14 @@ struct OnboardingFlowView: View {
     @State private var isCreatingChild = false
     @State private var childCreationError: String?
     private let introSlides = IntroSlide.slides
+    private let environment: AppEnvironment
+
+    private var palette: KidPalette {
+        environment.activeProfile.theme.kidPalette
+    }
 
     init(environment: AppEnvironment) {
+        self.environment = environment
         _viewModel = StateObject(wrappedValue: ViewModel(environment: environment))
     }
 
@@ -422,7 +428,7 @@ struct OnboardingFlowView: View {
             VStack(spacing: 24) {
                 ZStack {
                     Circle()
-                        .fill(Color.accentColor.opacity(0.1))
+                        .fill(palette.accent.opacity(0.1))
                         .frame(width: 120, height: 120)
 
                     if viewModel.isRecovering {
@@ -432,7 +438,7 @@ struct OnboardingFlowView: View {
                     } else {
                         Image(systemName: viewModel.recoveryFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                             .font(.system(size: 48))
-                            .foregroundStyle(viewModel.recoveryFailed ? .orange : .green)
+                            .foregroundStyle(viewModel.recoveryFailed ? palette.warning : palette.success)
                     }
                 }
 
@@ -450,14 +456,14 @@ struct OnboardingFlowView: View {
                 if let count = viewModel.recoveredChildCount, count > 0 {
                     HStack(spacing: 8) {
                         Image(systemName: "person.2.fill")
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(palette.accent)
                         Text("\(count) child \(count == 1 ? "profile" : "profiles") recovered")
                             .font(.headline)
                     }
                     .padding()
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.1))
+                            .fill(palette.accent.opacity(0.1))
                     )
                 }
             }
@@ -1235,6 +1241,7 @@ private struct ChildIdentityCard: View {
 }
 
 private struct ParentProfileOnboardingSheet: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     @Binding var name: String
     let isSubmitting: Bool
     let errorMessage: String?
@@ -1259,7 +1266,7 @@ private struct ParentProfileOnboardingSheet: View {
                 if let message = errorMessage, !message.isEmpty {
                     Section {
                         Label(message, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Color.orange)
+                            .foregroundStyle(appEnvironment.activeProfile.theme.kidPalette.warning)
                     }
                 }
             }
@@ -1290,6 +1297,7 @@ private struct ParentProfileOnboardingSheet: View {
 }
 
 private struct ChildProfileSheet: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     let title: String
     @Binding var name: String
     @Binding var theme: ThemeDescriptor
@@ -1318,7 +1326,7 @@ private struct ChildProfileSheet: View {
                 if let message = errorMessage, !message.isEmpty {
                     Section {
                         Label(message, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Color.orange)
+                            .foregroundStyle(appEnvironment.activeProfile.theme.kidPalette.warning)
                     }
                 }
             }

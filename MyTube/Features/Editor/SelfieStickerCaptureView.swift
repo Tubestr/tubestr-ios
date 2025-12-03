@@ -376,25 +376,31 @@ private struct CheckerboardBackground: View {
 private struct SelfieCameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
-        let previewLayer = AVCaptureVideoPreviewLayer(session: session)
-        previewLayer.videoGravity = .resizeAspectFill
-        view.layer.addSublayer(previewLayer)
-        context.coordinator.previewLayer = previewLayer
+    func makeUIView(context: Context) -> SelfiePreviewView {
+        let view = SelfiePreviewView()
+        view.videoPreviewLayer.session = session
+        view.videoPreviewLayer.videoGravity = .resizeAspectFill
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.previewLayer?.frame = uiView.bounds
+    func updateUIView(_ uiView: SelfiePreviewView, context: Context) {
+        uiView.videoPreviewLayer.session = session
+        // Handle video mirroring for front camera
+        if let connection = uiView.videoPreviewLayer.connection {
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = true  // Mirror for selfie view
+            }
+        }
     }
+}
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
+/// Custom UIView subclass that uses AVCaptureVideoPreviewLayer as its backing layer
+private final class SelfiePreviewView: UIView {
+    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
 
-    class Coordinator {
-        var previewLayer: AVCaptureVideoPreviewLayer?
+    var videoPreviewLayer: AVCaptureVideoPreviewLayer {
+        layer as! AVCaptureVideoPreviewLayer
     }
 }
 

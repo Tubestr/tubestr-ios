@@ -12,10 +12,15 @@ import SwiftUI
 
 /// Displays reports as conversation starters, grouped by level
 struct ConversationCardsView: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     let inboundReports: [ReportModel]
     let outboundReports: [ReportModel]
     let onMarkRead: (ReportModel) -> Void
     let onStartConversation: (ReportModel) -> Void
+
+    private var palette: KidPalette {
+        appEnvironment.activeProfile.theme.kidPalette
+    }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -65,7 +70,7 @@ struct ConversationCardsView: View {
         VStack(spacing: 8) {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 32))
-                .foregroundStyle(.blue.opacity(0.8))
+                .foregroundStyle(palette.accent.opacity(0.8))
 
             Text("Family Conversations")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
@@ -88,7 +93,7 @@ struct ConversationCardsView: View {
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
             } icon: {
                 Image(systemName: "heart.circle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(palette.warning)
             }
             .padding(.horizontal, 16)
 
@@ -112,7 +117,7 @@ struct ConversationCardsView: View {
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
             } icon: {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(palette.success)
             }
             .padding(.horizontal, 16)
 
@@ -136,7 +141,7 @@ struct ConversationCardsView: View {
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
             } icon: {
                 Image(systemName: "arrow.up.circle.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(palette.accent)
             }
             .padding(.horizontal, 16)
 
@@ -152,7 +157,7 @@ struct ConversationCardsView: View {
         VStack(spacing: 16) {
             Image(systemName: "sparkles")
                 .font(.system(size: 44))
-                .foregroundStyle(.green.opacity(0.6))
+                .foregroundStyle(palette.success.opacity(0.6))
 
             Text("All good here!")
                 .font(.system(size: 17, weight: .semibold, design: .rounded))
@@ -170,10 +175,15 @@ struct ConversationCardsView: View {
 // MARK: - Conversation Card
 
 struct ConversationCard: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     let report: ReportModel
     let style: CardStyle
     let onMarkRead: () -> Void
     let onStartConversation: () -> Void
+
+    private var palette: KidPalette {
+        appEnvironment.activeProfile.theme.kidPalette
+    }
 
     enum CardStyle {
         case needsAttention
@@ -377,9 +387,9 @@ struct ConversationCard: View {
 
     private var levelColor: Color {
         switch report.level {
-        case .peer: return .blue
-        case .parent: return .orange
-        case .moderator: return .red
+        case .peer: return palette.accent
+        case .parent: return palette.warning
+        case .moderator: return palette.error
         }
     }
 
@@ -427,7 +437,12 @@ struct ConversationCard: View {
 // MARK: - Outbound Report Card
 
 struct OutboundReportCard: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     let report: ReportModel
+
+    private var palette: KidPalette {
+        appEnvironment.activeProfile.theme.kidPalette
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -472,9 +487,9 @@ struct OutboundReportCard: View {
 
     private var statusColor: Color {
         switch report.status {
-        case .pending: return .orange
-        case .acknowledged: return .blue
-        case .actioned: return .green
+        case .pending: return palette.warning
+        case .acknowledged: return palette.accent
+        case .actioned: return palette.success
         case .dismissed: return .gray
         }
     }
@@ -490,9 +505,9 @@ struct OutboundReportCard: View {
 
     private var levelColor: Color {
         switch report.level {
-        case .peer: return .blue
-        case .parent: return .orange
-        case .moderator: return .red
+        case .peer: return palette.accent
+        case .parent: return palette.warning
+        case .moderator: return palette.error
         }
     }
 }

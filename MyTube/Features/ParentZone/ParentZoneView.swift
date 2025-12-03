@@ -51,6 +51,10 @@ struct ParentZoneView: View {
         return false
     }
 
+    private var palette: KidPalette {
+        environment.activeProfile.theme.kidPalette
+    }
+
     private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
@@ -120,23 +124,23 @@ struct ParentZoneView: View {
                     parts.append(String(format: "%.1f ms", ms))
                 }
             }
-            return (parts.joined(separator: " • "), .green)
+            return (parts.joined(separator: " • "), palette.success)
         case .connecting:
-            return ("Connecting…", .blue)
+            return ("Connecting…", palette.accent)
         case .waitingRetry:
             if let nextRetry = status.nextRetry {
                 let formatter = RelativeDateTimeFormatter()
                 formatter.unitsStyle = .short
                 let delta = formatter.localizedString(for: nextRetry, relativeTo: Date())
                 if status.consecutiveFailures > 0 {
-                    return ("Retry \(delta) (attempt \(status.retryAttempt)) • failures \(status.consecutiveFailures)", .orange)
+                    return ("Retry \(delta) (attempt \(status.retryAttempt)) • failures \(status.consecutiveFailures)", palette.warning)
                 }
-                return ("Retry \(delta) (attempt \(status.retryAttempt))", .orange)
+                return ("Retry \(delta) (attempt \(status.retryAttempt))", palette.warning)
             }
             if status.consecutiveFailures > 0 {
-                return ("Retrying (attempt \(status.retryAttempt)) • failures \(status.consecutiveFailures)", .orange)
+                return ("Retrying (attempt \(status.retryAttempt)) • failures \(status.consecutiveFailures)", palette.warning)
             }
-            return ("Retrying (attempt \(status.retryAttempt))", .orange)
+            return ("Retrying (attempt \(status.retryAttempt))", palette.warning)
         case .disconnected:
             if status.consecutiveFailures > 0 {
                 return ("Disconnected • failures \(status.consecutiveFailures)", .secondary)
@@ -144,9 +148,9 @@ struct ParentZoneView: View {
             return ("Disconnected", .secondary)
         case .error:
             if let description = status.errorDescription, !description.isEmpty {
-                return ("Error • \(description)", .red)
+                return ("Error • \(description)", palette.error)
             }
-            return ("Error", .red)
+            return ("Error", palette.error)
         }
     }
 
@@ -599,7 +603,7 @@ struct ParentZoneView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 LinearGradient(
-                    colors: [Color.accentColor, Color.accentColor.opacity(0.8)],
+                    colors: [palette.accent, palette.accentSecondary],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -660,7 +664,7 @@ struct ParentZoneView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(isSelected ? .white.opacity(0.3) : .orange))
+                        .background(Capsule().fill(isSelected ? .white.opacity(0.3) : palette.warning))
                 }
             }
             .padding(.horizontal, 16)
@@ -796,10 +800,10 @@ private extension ParentZoneView {
             Section("Family Summary") {
                 if viewModel.parentIdentity != nil {
                     Label("Parent key ready", systemImage: "checkmark.shield.fill")
-                        .foregroundStyle(Color.green)
+                        .foregroundStyle(palette.success)
                 } else {
                     Label("Parent key not configured", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Color.orange)
+                        .foregroundStyle(palette.warning)
                     Text("Create your parent identity to link families and publish profiles.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -812,7 +816,7 @@ private extension ParentZoneView {
                     .foregroundStyle(Color.primary)
 
                 Label("\(activeCount) active family \(activeCount == 1 ? "connection" : "connections")", systemImage: "person.crop.circle.badge.checkmark")
-                    .foregroundStyle(activeCount > 0 ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(activeCount > 0 ? palette.accent : Color.secondary)
 
                 if groupCount > 0 {
                     Label("\(groupCount) family connection\(groupCount == 1 ? "" : "s") ready", systemImage: "person.3.sequence")
@@ -824,17 +828,17 @@ private extension ParentZoneView {
 
                 if remoteShareCount > 0 {
                     Label("\(remoteShareCount) shared \(remoteShareCount == 1 ? "video" : "videos") from friends", systemImage: "tray.and.arrow.down.fill")
-                        .foregroundStyle(Color.purple)
+                        .foregroundStyle(palette.accentSecondary)
                 }
 
                 if pendingWelcomes > 0 {
                     Label("\(pendingWelcomes) pending connection invite\(pendingWelcomes == 1 ? "" : "s")", systemImage: "envelope.open")
-                        .foregroundStyle(Color.orange)
+                        .foregroundStyle(palette.warning)
                 }
 
                 if incomingCount > 0 {
                     Label("\(incomingCount) pending approval\(incomingCount == 1 ? "" : "s")", systemImage: "bell.badge.fill")
-                        .foregroundStyle(Color.orange)
+                        .foregroundStyle(palette.warning)
                 }
             }
 
@@ -1434,7 +1438,7 @@ private extension ParentZoneView {
         VStack(alignment: .leading, spacing: 4) {
             Label("\(entitlement.plan) • \(entitlement.statusLabel)", systemImage: entitlement.isActive ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                 .font(.subheadline)
-                .foregroundStyle(entitlement.isActive ? Color.accentColor : Color.orange)
+                .foregroundStyle(entitlement.isActive ? palette.accent : palette.warning)
 
             if let usage = entitlement.usageSummary {
                 Text(usage)
@@ -1838,7 +1842,7 @@ private extension ParentZoneView {
                 Spacer()
                 Text(summary.state.capitalized)
                     .font(.caption2)
-                    .foregroundStyle(summary.isActive ? Color.green : Color.orange)
+                    .foregroundStyle(summary.isActive ? palette.success : palette.warning)
             }
             Text("\(summary.memberCount) member\(summary.memberCount == 1 ? "" : "s") • \(summary.relayCount) relay\(summary.relayCount == 1 ? "" : "s")")
                 .font(.caption)
@@ -2261,6 +2265,7 @@ private struct ChildImportFormSheet: View {
 }
 
 private struct PinCard<Content: View>: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     let icon: String?
     let title: String
     let subtitle: String?
@@ -2278,7 +2283,7 @@ private struct PinCard<Content: View>: View {
             if let icon {
                 Image(systemName: icon)
                     .font(.title3)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(appEnvironment.activeProfile.theme.kidPalette.accent)
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
@@ -2381,12 +2386,13 @@ private struct KeyExportCard: View {
 }
 
 private struct StorageMeterView: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     let usage: StorageUsage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ProgressView(value: usage.totalDouble, total: 1)
-                .tint(.accentColor)
+                .tint(appEnvironment.activeProfile.theme.kidPalette.accent)
             HStack {
                 storageRow(label: "Media", value: usage.media)
                 Spacer()

@@ -21,7 +21,7 @@ struct StickerOverlayView: View {
     private let baseSize: CGFloat = 100
 
     var body: some View {
-        if let image = ResourceLibrary.stickerImage(named: sticker.id) {
+        if let image = ResourceLibrary.stickerImage(for: sticker) {
             let currentScale = transform.scale * gestureScale
             let currentRotation = Angle(degrees: transform.rotation) + gestureRotation
 

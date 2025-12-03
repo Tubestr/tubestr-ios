@@ -80,6 +80,7 @@ enum ReportFeeling: String, CaseIterable, Identifiable {
 // MARK: - Feeling Report Sheet
 
 struct FeelingReportSheet: View {
+    @EnvironmentObject private var appEnvironment: AppEnvironment
     @Environment(\.dismiss) private var dismiss
     @State private var step: ReportStep = .feeling
     @State private var selectedFeeling: ReportFeeling?
@@ -92,10 +93,25 @@ struct FeelingReportSheet: View {
     let onSubmit: (ReportFeeling, ReportAction) -> Void
     let onCancel: () -> Void
 
+    private var palette: KidPalette {
+        appEnvironment.activeProfile.theme.kidPalette
+    }
+
     enum ReportStep {
         case feeling
         case action
         case confirm
+    }
+
+    /// Returns a theme-aware color for a feeling
+    private func feelingColor(_ feeling: ReportFeeling) -> Color {
+        switch feeling {
+        case .uncomfortable: return palette.warning
+        case .sad: return palette.accent
+        case .confused: return palette.accentSecondary
+        case .scared: return palette.accent.opacity(0.8)
+        case .angry: return palette.error
+        }
     }
 
     var body: some View {
@@ -212,6 +228,7 @@ struct FeelingReportSheet: View {
                 ForEach(ReportFeeling.allCases) { feeling in
                     FeelingButton(
                         feeling: feeling,
+                        color: feelingColor(feeling),
                         isSelected: selectedFeeling == feeling
                     ) {
                         withAnimation(.spring(response: 0.3)) {
@@ -271,7 +288,7 @@ struct FeelingReportSheet: View {
                     icon: "hand.raised",
                     title: "Just Tell Them",
                     subtitle: "Let them know how you feel",
-                    color: .blue,
+                    color: palette.accent,
                     isSelected: selectedAction == .reportOnly
                 ) {
                     selectedAction = .reportOnly
@@ -282,7 +299,7 @@ struct FeelingReportSheet: View {
                         icon: "eye.slash",
                         title: "Hide Their Videos",
                         subtitle: "Stop seeing videos from them",
-                        color: .orange,
+                        color: palette.warning,
                         isSelected: selectedAction == .unfollow
                     ) {
                         selectedAction = .unfollow
@@ -292,7 +309,7 @@ struct FeelingReportSheet: View {
                         icon: "xmark.shield",
                         title: "Block Them",
                         subtitle: "They can't send videos anymore",
-                        color: .red,
+                        color: palette.error,
                         isSelected: selectedAction == .block
                     ) {
                         selectedAction = .block
@@ -320,7 +337,7 @@ struct FeelingReportSheet: View {
                 .frame(height: 56)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(selectedFeeling?.color ?? .blue)
+                        .fill(selectedFeeling.map { feelingColor($0) } ?? palette.accent)
                 )
             }
             .padding(.horizontal, 24)
@@ -354,8 +371,13 @@ struct FeelingReportSheet: View {
                     }
 
                     // Visual indication of who receives
-                    RecipientIndicator(level: feeling.level)
-                        .padding(.horizontal, 24)
+                    RecipientIndicator(
+                        level: feeling.level,
+                        peerColor: palette.accent,
+                        parentColor: palette.warning,
+                        moderatorColor: palette.error
+                    )
+                    .padding(.horizontal, 24)
                 }
             }
 
@@ -365,7 +387,7 @@ struct FeelingReportSheet: View {
             if let error = errorMessage, !error.isEmpty {
                 Text(error)
                     .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(palette.error)
                     .padding(.horizontal, 24)
             }
 
@@ -393,15 +415,15 @@ struct FeelingReportSheet: View {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    selectedFeeling?.color ?? .blue,
-                                    (selectedFeeling?.color ?? .blue).opacity(0.8)
+                                    selectedFeeling.map { feelingColor($0) } ?? palette.accent,
+                                    (selectedFeeling.map { feelingColor($0) } ?? palette.accent).opacity(0.8)
                                 ],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         )
                 )
-                .shadow(color: (selectedFeeling?.color ?? .blue).opacity(0.4), radius: 16, y: 8)
+                .shadow(color: (selectedFeeling.map { feelingColor($0) } ?? palette.accent).opacity(0.4), radius: 16, y: 8)
             }
             .disabled(isSubmitting)
             .padding(.horizontal, 24)
@@ -450,6 +472,7 @@ struct FeelingReportSheet: View {
 
 private struct FeelingButton: View {
     let feeling: ReportFeeling
+    let color: Color
     let isSelected: Bool
     let action: () -> Void
 
@@ -470,10 +493,10 @@ private struct FeelingButton: View {
             .frame(height: 120)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(isSelected ? feeling.color.opacity(0.3) : .white.opacity(0.08))
+                    .fill(isSelected ? color.opacity(0.3) : .white.opacity(0.08))
                     .overlay(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(isSelected ? feeling.color : .clear, lineWidth: 3)
+                            .stroke(isSelected ? color : .clear, lineWidth: 3)
                     )
             )
             .scaleEffect(isSelected ? 1.05 : 1.0)
@@ -545,6 +568,9 @@ private struct ActionOptionButton: View {
 
 private struct RecipientIndicator: View {
     let level: ReportLevel
+    let peerColor: Color
+    let parentColor: Color
+    let moderatorColor: Color
 
     var body: some View {
         HStack(spacing: 16) {
@@ -594,9 +620,9 @@ private struct RecipientIndicator: View {
 
     private var levelColor: Color {
         switch level {
-        case .peer: return .blue
-        case .parent: return .orange
-        case .moderator: return .red
+        case .peer: return peerColor
+        case .parent: return parentColor
+        case .moderator: return moderatorColor
         }
     }
 

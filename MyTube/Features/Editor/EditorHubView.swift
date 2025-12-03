@@ -71,6 +71,9 @@ struct EditorHubView: View {
         .fullScreenCover(item: $activeSelection, onDismiss: viewModel.loadVideos) { selection in
             EditorDetailView(video: selection.video, environment: environment)
         }
+        .onAppear {
+            viewModel.loadVideos()
+        }
     }
 
     // MARK: - Header

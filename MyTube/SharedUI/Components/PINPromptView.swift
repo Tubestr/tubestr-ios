@@ -34,7 +34,7 @@ struct PINPromptView: View {
                 if let errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(appEnvironment.activeProfile.theme.kidPalette.error)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
